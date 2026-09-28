@@ -7,5 +7,7 @@
  *    → 誰かが偽のリンクを作っても、お店のパスワードを別の場所へ送らせない。
  */
 window.MATCHIMO_ADMIN_CONFIG = {
-  apiHashes: []
+  apiHashes: [
+    'f660b4e6277d1788958b1af4d9e76b92720af151a6fee87b7d328dfc800f5340' // 2026-09-28 最初のデプロイ（メールとパスワードの形 最初の版）
+  ]
 };
