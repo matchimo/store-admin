@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<!--
+  index.html ── matchimo 店舗管理画面（2026-09-28）
+  ログインID（＝お店のメールアドレス）とパスワードで入る。パスワードは、お店が招待メールのリンクから決める。
+  見た目は一般的な管理画面。データは matchimo の窓口（Google Apps Script）から受け取る。
+  🔴 この画面のファイルは公開される。お客さま情報・パスワード・窓口の URL を入れない。
+  🔴 お店のデータは必ず textContent で入れる（innerHTML に入れない）。
+-->
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<title>matchimo 店舗管理画面</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ログイン -->
+<section id="login" class="auth" hidden>
+  <div class="auth-box">
+    <div class="auth-brand"><span class="logo">matchimo</span><span class="logo-sub">店舗管理画面</span></div>
+    <form id="loginForm" class="auth-card" novalidate>
+      <h1>ログイン</h1>
+      <div class="field">
+        <label for="loginId">ログインID（メールアドレス）</label>
+        <input id="loginId" name="username" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" inputmode="email">
+      </div>
+      <div class="field">
+        <label for="pw">パスワード</label>
+        <div class="input-group">
+          <input id="pw" name="password" type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false">
+          <button type="button" class="btn btn-secondary" data-show="pw">表示</button>
+        </div>
+      </div>
+      <p id="loginMsg" class="alert alert-danger" role="alert" hidden></p>
+      <button type="submit" id="loginBtn" class="btn btn-primary btn-block">ログイン</button>
+      <p class="auth-links"><button type="button" id="toForgot" class="btn-link">パスワードを忘れた方</button></p>
+      <p class="auth-help">はじめての方は、運営（matchimo）から届いた「店舗管理画面へのご招待」のメールのリンクから、パスワードを決めてください。</p>
+    </form>
+    <p class="auth-foot">© matchimo</p>
+  </div>
+</section>
+
+<!-- パスワードを忘れた方 -->
+<section id="forgot" class="auth" hidden>
+  <div class="auth-box">
+    <div class="auth-brand"><span class="logo">matchimo</span><span class="logo-sub">店舗管理画面</span></div>
+    <form id="forgotForm" class="auth-card" novalidate>
+      <h1>パスワードを忘れた方</h1>
+      <p class="muted">ログインID（メールアドレス）を入れて【送る】を押してください。パスワードを決め直すためのリンクを、メールでお送りします（24時間有効）。</p>
+      <div class="field">
+        <label for="forgotEmail">ログインID（メールアドレス）</label>
+        <input id="forgotEmail" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" inputmode="email">
+      </div>
+      <p id="forgotMsg" class="alert" role="status" hidden></p>
+      <button type="submit" id="forgotBtn" class="btn btn-primary btn-block">送る</button>
+      <p class="auth-links"><button type="button" class="btn-link" data-go="login">ログイン画面に戻る</button></p>
+    </form>
+    <p class="auth-foot">© matchimo</p>
+  </div>
+</section>
+
+<!-- パスワードを決める（招待・決め直しのメールのリンクから） -->
+<section id="setpw" class="auth" hidden>
+  <div class="auth-box">
+    <div class="auth-brand"><span class="logo">matchimo</span><span class="logo-sub">店舗管理画面</span></div>
+    <form id="setpwForm" class="auth-card" novalidate>
+      <h1 id="setpwTitle">パスワードを決める</h1>
+      <dl class="dl dl-card">
+        <dt>店舗</dt><dd id="setpwStores"></dd>
+        <dt>ログインID</dt><dd id="setpwEmail"></dd>
+      </dl>
+      <input id="setpwUser" name="username" type="text" autocomplete="username" hidden>
+      <div class="field">
+        <label for="newPw">新しいパスワード</label>
+        <div class="input-group">
+          <input id="newPw" name="new-password" type="password" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="64">
+          <button type="button" class="btn btn-secondary" data-show="newPw">表示</button>
+        </div>
+        <p class="hint">8文字以上。かんたんすぎるもの（12345678 など）や、メールアドレスを含むものは使えません。</p>
+      </div>
+      <div class="field">
+        <label for="newPw2">新しいパスワード（確認のため、もう一度）</label>
+        <input id="newPw2" type="password" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="64">
+      </div>
+      <p id="setpwMsg" class="alert alert-danger" role="alert" hidden></p>
+      <button type="submit" id="setpwBtn" class="btn btn-primary btn-block">パスワードを決めてログイン</button>
+      <p id="setpwExpires" class="auth-help"></p>
+    </form>
+    <p class="auth-foot">© matchimo</p>
+  </div>
+</section>
+
+<!-- お知らせだけの画面（リンクが違う など） -->
+<section id="message" class="auth" hidden>
+  <div class="auth-box">
+    <div class="auth-brand"><span class="logo">matchimo</span><span class="logo-sub">店舗管理画面</span></div>
+    <div class="auth-card">
+      <h1 id="messageTitle"></h1>
+      <p id="messageText" class="muted"></p>
+      <button type="button" id="messageRetry" class="btn btn-secondary" hidden>もう一度読み込む</button>
+      <button type="button" id="messageLogin" class="btn btn-secondary" data-go="login" hidden>ログイン画面へ</button>
+    </div>
+  </div>
+</section>
+
+<!-- 準備（運営だけ・#setup） -->
+<section id="setup" class="auth" hidden>
+  <div class="auth-box auth-box-wide">
+    <div class="auth-brand"><span class="logo">matchimo</span><span class="logo-sub">店舗管理画面</span></div>
+    <div class="auth-card">
+      <h1>準備（運営だけが使う画面）</h1>
+      <p class="muted">GAS の【デプロイ】で出た URL（<code>…/exec</code> で終わるもの）を貼って、【調べる】を押してください。この画面は、どこにも何も送りません。</p>
+      <div class="field">
+        <label for="deployUrl">デプロイの URL</label>
+        <input id="deployUrl" type="text" autocomplete="off" spellcheck="false">
+      </div>
+      <button type="button" class="btn btn-primary" id="setupBtn">調べる</button>
+      <p id="setupMsg" class="alert alert-danger" role="alert" hidden></p>
+      <div id="setupOut" hidden>
+        <h2>① 指紋（config.js に登録する値・人に見せてよい）</h2>
+        <p class="mono" id="setupHash"></p>
+        <button type="button" class="btn btn-secondary btn-sm" data-copy="setupHash">コピー</button>
+        <p id="setupPinned"></p>
+        <h2>② お店に送るリンク（GAS のスクリプト プロパティ STORE_ADMIN_URL に入れる）</h2>
+        <p class="mono" id="setupLink"></p>
+        <button type="button" class="btn btn-secondary btn-sm" data-copy="setupLink">コピー</button>
+        <p class="alert alert-warning">🔒 デプロイの URL と ② のリンクは、チャットや記録に貼らないでください。② は GAS の STORE_ADMIN_URL に入れるだけです（招待メールに入って、お店に届きます）。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 管理画面 -->
+<div id="shell" hidden>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand"><span class="logo">matchimo</span><span class="logo-sub">店舗管理</span></div>
+      <div class="store-switch">
+        <span id="storeName" class="store-name"></span>
+        <select id="storeSelect" class="select" aria-label="店舗を切り替える" hidden></select>
+      </div>
+      <span id="whoami" class="whoami"></span>
+      <button type="button" id="logout" class="btn btn-secondary btn-sm">ログアウト</button>
+    </div>
+  </header>
+
+  <main class="page">
+    <div class="page-head">
+      <h1>注文一覧</h1>
+      <div class="page-actions">
+        <span id="updatedAt" class="muted small"></span>
+        <button type="button" id="refresh" class="btn btn-secondary btn-sm">更新</button>
+      </div>
+    </div>
+
+    <div id="notice" class="alert" role="status" hidden>
+      <span id="noticeText"></span>
+      <button type="button" id="noticeClose" class="alert-close" aria-label="閉じる">×</button>
+    </div>
+    <p id="warn" class="alert alert-warning" hidden></p>
+
+    <section id="stats" class="stats" aria-label="概要"></section>
+
+    <div class="panel">
+      <nav id="tabs" class="tabs" aria-label="絞り込み"></nav>
+      <table class="table" id="table">
+        <thead>
+          <tr>
+            <th>状態</th><th>注文番号</th><th>納品日時</th><th>お客さま</th>
+            <th class="num">食数</th><th class="num">合計</th><th class="act">操作</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div id="list" class="list"></div>
+      <p id="empty" class="empty" hidden></p>
+    </div>
+
+    <p class="page-foot">「確認済み」は、お店が注文を見た記録です。取り消せません。運営の受注一覧にも、すぐに反映されます。</p>
+  </main>
+</div>
+
+<!-- 注文の詳細（右から出る・スマホは全画面） -->
+<div id="drawer" class="drawer" hidden>
+  <div class="drawer-backdrop" data-close="drawer"></div>
+  <aside class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawerTitle">
+    <div class="drawer-head">
+      <div>
+        <h2 id="drawerTitle"></h2>
+        <div id="drawerBadges" class="badges"></div>
+      </div>
+      <button type="button" class="btn btn-text" data-close="drawer" aria-label="閉じる">✕</button>
+    </div>
+    <div id="drawerBody" class="drawer-body"></div>
+    <div id="drawerFoot" class="drawer-foot"></div>
+  </aside>
+</div>
+
+<!-- 確認のダイアログ -->
+<div id="modal" class="modal" hidden>
+  <div class="modal-backdrop"></div>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <h2 id="modalTitle"></h2>
+    <div id="modalBody" class="modal-body"></div>
+    <p class="alert alert-warning small">確認済みにすると、取り消せません。</p>
+    <div class="field">
+      <label for="whoName">担当者名（任意）</label>
+      <input id="whoName" type="text" maxlength="20" autocomplete="name">
+      <p class="hint">確認の記録には、担当者名とログインID（メールアドレス）が残ります。</p>
+    </div>
+    <div class="modal-actions">
+      <button type="button" id="modalCancel" class="btn btn-secondary">キャンセル</button>
+      <button type="button" id="modalOk" class="btn btn-primary">確認済みにする</button>
+    </div>
+  </div>
+</div>
+
+<div id="loading" class="loading" role="status" aria-label="読み込み中" hidden><div class="spinner"></div></div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
