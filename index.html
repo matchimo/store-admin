@@ -182,10 +182,11 @@
             <div class="card-title">これからの納品</div>
             <div id="homeNext" class="mini-list"></div>
           </div>
-          <div class="card">
+          <div class="card" id="homeOpenCard">
             <div class="card-title">受付の状態</div>
-            <div class="card-big card-ok">受付中</div>
-            <p class="card-sub">休業日・臨時の受付停止は「営業の設定」で切り替えます（準備中）。</p>
+            <div id="homeOpen" class="card-big card-ok">受付中</div>
+            <p id="homeOpenSub" class="card-sub"></p>
+            <div><button type="button" id="homeToHours" class="btn btn-secondary btn-sm">営業の設定へ</button></div>
           </div>
           <div class="card">
             <div class="card-title">運営からのお知らせ</div>
@@ -194,7 +195,7 @@
           <div class="card">
             <div class="card-title">情報の充実度</div>
             <div id="homeMeter" class="meter"></div>
-            <p class="card-sub">商品とお店の情報が入ると、ここが埋まります（準備中）。</p>
+            <p class="card-sub">商品とお店の情報が入ると、ここが埋まります。</p>
           </div>
           <div class="card">
             <div class="card-title">自店のページ</div>
@@ -279,9 +280,9 @@
       <!-- お店の情報 -->
       <section id="box-store" class="box" hidden>
         <div class="page-head"><h1>お店の情報</h1></div>
-        <p class="coming">準備中 ── 文章と写真は【申請】→ 運営が確認して【承認】→ 受注サイトのお店のページへ。住所・電話・Google マップのリンクはすぐに反映されます。</p>
+        <p class="coming">文章と写真の【申請】→ 運営の【承認】は準備中です。下の「事実の情報」は、ここで保存すると運営にメールで知らせます（承認なし）。</p>
         <div class="panel pad">
-          <h2 class="h2">お客さまに見える文章・写真（申請 → 承認）</h2>
+          <h2 class="h2">お客さまに見える文章・写真（申請 → 承認・準備中）</h2>
           <div class="form-grid">
             <div class="field"><label for="stIntro">お店の紹介文</label><textarea id="stIntro" disabled placeholder="例：厳選した米油で揚げる、当店自慢のとんかつです。"></textarea></div>
             <div class="field"><label for="stPhoto">お店の写真（1600×400）</label><input id="stPhoto" type="text" disabled placeholder="写真を選ぶ（準備中）"></div>
@@ -289,33 +290,40 @@
             <div class="field"><label for="stPoint2">こだわり 2</label><input id="stPoint2" type="text" disabled placeholder="見出しと本文"></div>
             <div class="field"><label for="stPoint3">こだわり 3</label><input id="stPoint3" type="text" disabled placeholder="見出しと本文"></div>
           </div>
-          <h2 class="h2">事実の情報（すぐに反映）</h2>
+          <div class="toolbar-actions"><button type="button" class="btn btn-secondary" disabled>申請する（準備中）</button></div>
+          <h2 class="h2">事実の情報（承認なしで保存・運営にメール）</h2>
           <div class="form-grid">
-            <div class="field"><label for="stAddress">住所</label><input id="stAddress" type="text" disabled placeholder="〒・都道府県・市区町村・番地"></div>
-            <div class="field"><label for="stTel">電話</label><input id="stTel" type="text" disabled placeholder="03-0000-0000"></div>
-            <div class="field"><label for="stMap">Google マップのリンク</label><input id="stMap" type="text" disabled placeholder="お店の Google ビジネスプロフィールの口コミのリンク"></div>
-            <div class="field"><label for="stBank">振込先（請求書に出ます・お客さまのページには出ません）</label><input id="stBank" type="text" disabled placeholder="銀行名・支店・口座"></div>
+            <div class="field"><label for="stAddress">住所</label><input id="stAddress" type="text" maxlength="200" placeholder="〒・都道府県・市区町村・番地"></div>
+            <div class="field"><label for="stTel">電話</label><input id="stTel" type="text" maxlength="30" inputmode="tel" placeholder="03-0000-0000（0 から）"></div>
+            <div class="field"><label for="stMap">Google マップのリンク</label><input id="stMap" type="url" maxlength="500" placeholder="https://maps.app.goo.gl/…"></div>
+            <div class="field"><label for="stBank">振込先（請求書に出ます・お客さまのページには出ません）</label><input id="stBank" type="text" maxlength="200" placeholder="銀行名・支店・口座の種類と番号・名義"></div>
           </div>
-          <div class="toolbar-actions"><button type="button" class="btn btn-primary" disabled>申請する（準備中）</button><button type="button" class="btn btn-secondary" disabled>保存（準備中）</button></div>
+          <p class="hint">受注サイト（お店のページ）への反映は運営が行います。保存すると運営にメールが届きます。</p>
+          <div class="toolbar-actions"><button type="button" id="stSave" class="btn btn-primary">事実の情報を保存</button><span id="stUpdated" class="muted small"></span></div>
         </div>
       </section>
 
       <!-- 営業の設定 -->
       <section id="box-hours" class="box" hidden>
         <div class="page-head"><h1>営業の設定</h1></div>
-        <p class="coming">準備中 ── ここで変えたものは、承認なしで1分以内に受注サイトへ反映され、運営にメールで知らせます。</p>
+        <p class="coming">ここで変えたものは、承認なしで保存され、運営にメールで知らせます。受注サイトへの反映は運営が行います（自動になる予定）。</p>
         <div class="panel pad">
           <div class="form-grid">
             <div class="field"><label>定休日</label><div class="check-row" id="hoursWeek"></div></div>
-            <div class="field"><label for="hrHoliday">休業日（カレンダーで日付を足す）</label><input id="hrHoliday" type="date" disabled></div>
-            <div class="field"><label for="hrStop">臨時の受付停止</label><select id="hrStop" disabled><option>受付中</option><option>いま受付を止める</option></select></div>
-            <div class="field"><label for="hrLead">締切（納品日の何日前まで）</label><input id="hrLead" type="number" disabled placeholder="例：2"></div>
-            <div class="field"><label for="hrCutoff">締切の時刻</label><input id="hrCutoff" type="time" disabled></div>
-            <div class="field"><label for="hrArea">対応エリア</label><input id="hrArea" type="text" disabled placeholder="例：品川区・港区・目黒区・大田区"></div>
-            <div class="field"><label for="hrMinLot">最小ロット（お店の既定）</label><input id="hrMinLot" type="number" disabled placeholder="例：20"></div>
+            <div class="field"><label for="hrHoliday">休業日（日付を選んで「足す」）</label>
+              <div class="row-inline"><input id="hrHoliday" type="date"><button type="button" id="hrHolidayAdd" class="btn btn-secondary">足す</button></div>
+              <div id="hrHolidayList" class="chips"></div>
+              <p class="hint">過ぎた日は、保存のときに自動で外れます。</p></div>
+            <div class="field"><label for="hrStop">臨時の受付停止</label><select id="hrStop"><option value="">受付中</option><option value="1">いま受付を止める</option></select></div>
+            <div class="field"><label for="hrStopUntil">停止の期限（この日まで。空なら戻すまで）</label><input id="hrStopUntil" type="date"></div>
+            <div class="field field-wide"><label for="hrStopNote">停止の理由（お客さまに見せる一言）</label><input id="hrStopNote" type="text" maxlength="100" placeholder="例：仕込みのため、◯日まで受付を止めています"></div>
+            <div class="field"><label for="hrLead">締切（納品日の何日前まで）</label><input id="hrLead" type="number" min="0" max="30" inputmode="numeric" placeholder="例：2"></div>
+            <div class="field"><label for="hrCutoff">締切の時刻</label><input id="hrCutoff" type="time"></div>
+            <div class="field field-wide"><label for="hrArea">対応エリア</label><textarea id="hrArea" maxlength="300" placeholder="例：品川区・港区・目黒区・大田区"></textarea></div>
+            <div class="field"><label for="hrMinLot">最小ロット（お店の既定）</label><input id="hrMinLot" type="number" min="1" max="9999" inputmode="numeric" placeholder="例：20"></div>
           </div>
-          <p class="hint">🔴 もう入っている注文は止まりません。休業日にする日に注文が入っていれば、ここに件数が出ます（準備中）。</p>
-          <div class="toolbar-actions"><button type="button" class="btn btn-primary" disabled>保存（準備中）</button></div>
+          <p class="hint" id="hrOrdersOnHolidays"></p>
+          <div class="toolbar-actions"><button type="button" id="hrSave" class="btn btn-primary">営業の設定を保存</button><span id="hrUpdated" class="muted small"></span></div>
         </div>
       </section>
 

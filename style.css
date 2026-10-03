@@ -367,3 +367,17 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
   .labels { grid-template-columns: repeat(2, 1fr); }
   .label-card { page-break-inside: avoid; }
 }
+
+/* 営業の設定・お店の情報（2026-10-04） */
+.row-inline { display: flex; gap: 8px; align-items: center; }
+.row-inline input { flex: 1; min-width: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
+.chip { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 6px 0 10px; border-radius: 999px; background: var(--gray-soft); color: var(--text); font-size: 13px; }
+.chip-x { border: 0; background: none; color: var(--muted); font-size: 16px; line-height: 1; padding: 0 4px; cursor: pointer; }
+.chip-x:hover { color: var(--danger); }
+.field-wide { grid-column: 1 / -1; }
+.card-ng { color: var(--danger); }
+.card-warn { color: var(--warning); }
+.meter-ok { color: var(--success); font-weight: 600; }
+.meter-ng { color: var(--danger); font-weight: 600; }
+.toolbar-actions .muted { align-self: center; }
