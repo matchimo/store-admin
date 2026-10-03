@@ -3,9 +3,10 @@
 <head>
 <meta charset="utf-8">
 <!--
-  index.html ── matchimo 店舗管理画面（2026-09-28）
+  index.html ── matchimo 店舗管理画面（v2・2026-10-03）
   ログインID（＝お店のメールアドレス）とパスワードで入る。パスワードは、お店が招待メールのリンクから決める。
-  見た目は一般的な管理画面。データは matchimo の窓口（Google Apps Script）から受け取る。
+  左の縦メニューで箱を切り替える：トップ／注文／帳票／売上／お店の情報／営業の設定／商品／口コミ／お知らせ／設定。
+  データは matchimo の窓口（Google Apps Script）から受け取る。帳票はブラウザの印刷（PDF に保存）で出す。
   🔴 この画面のファイルは公開される。お客さま情報・パスワード・窓口の URL を入れない。
   🔴 お店のデータは必ず textContent で入れる（innerHTML に入れない）。
 -->
@@ -139,6 +140,7 @@
 <div id="shell" hidden>
   <header class="topbar">
     <div class="topbar-inner">
+      <button type="button" id="menuBtn" class="btn btn-text menu-btn" aria-label="メニューを開く" aria-expanded="false">≡</button>
       <div class="brand"><span class="logo">matchimo</span><span class="logo-sub">店舗管理</span></div>
       <div class="store-switch">
         <span id="storeName" class="store-name"></span>
@@ -148,41 +150,226 @@
       <button type="button" id="logout" class="btn btn-secondary btn-sm">ログアウト</button>
     </div>
   </header>
+  <p id="demoBar" class="demo-bar" hidden>見本データで表示しています（お店・お客さまは架空）。本物の窓口にはつながっていません。</p>
 
-  <main class="page">
-    <div class="page-head">
-      <h1>注文一覧</h1>
-      <div class="page-actions">
-        <span id="updatedAt" class="muted small"></span>
-        <button type="button" id="refresh" class="btn btn-secondary btn-sm">更新</button>
+  <div class="layout">
+    <div id="navBackdrop" class="nav-backdrop" hidden></div>
+    <nav id="sidenav" class="sidenav" aria-label="メニュー"></nav>
+
+    <main class="page">
+      <div id="notice" class="alert" role="status" hidden>
+        <span id="noticeText"></span>
+        <button type="button" id="noticeClose" class="alert-close" aria-label="閉じる">×</button>
       </div>
-    </div>
+      <p id="warn" class="alert alert-warning" hidden></p>
 
-    <div id="notice" class="alert" role="status" hidden>
-      <span id="noticeText"></span>
-      <button type="button" id="noticeClose" class="alert-close" aria-label="閉じる">×</button>
-    </div>
-    <p id="warn" class="alert alert-warning" hidden></p>
+      <!-- トップ -->
+      <section id="box-home" class="box" hidden>
+        <div class="page-head"><h1>トップ</h1><div class="page-actions"><span id="homeDate" class="muted small"></span></div></div>
+        <div class="cards">
+          <div class="card" id="homeUnconfCard">
+            <div class="card-title">未確認の注文</div>
+            <div id="homeUnconf" class="card-big"></div>
+            <p id="homeUnconfSub" class="card-sub"></p>
+            <div><button type="button" id="homeToUnconf" class="btn btn-primary btn-sm">未確認の注文を見る</button></div>
+          </div>
+          <div class="card">
+            <div class="card-title">本日の納品</div>
+            <div id="homeTodayBig" class="card-big"></div>
+            <div id="homeTodayList" class="mini-list"></div>
+          </div>
+          <div class="card">
+            <div class="card-title">これからの納品</div>
+            <div id="homeNext" class="mini-list"></div>
+          </div>
+          <div class="card">
+            <div class="card-title">受付の状態</div>
+            <div class="card-big card-ok">受付中</div>
+            <p class="card-sub">休業日・臨時の受付停止は「営業の設定」で切り替えます（準備中）。</p>
+          </div>
+          <div class="card">
+            <div class="card-title">運営からのお知らせ</div>
+            <p id="homeNews" class="card-sub">お知らせはありません。</p>
+          </div>
+          <div class="card">
+            <div class="card-title">情報の充実度</div>
+            <div id="homeMeter" class="meter"></div>
+            <p class="card-sub">商品とお店の情報が入ると、ここが埋まります（準備中）。</p>
+          </div>
+          <div class="card">
+            <div class="card-title">自店のページ</div>
+            <p class="card-sub">お客さまから見える、お店のページを開きます。URL は作り直しのあとに入ります。</p>
+            <div><button type="button" class="btn btn-secondary btn-sm" disabled>自店のページを見る（準備中）</button></div>
+          </div>
+        </div>
+      </section>
 
-    <section id="stats" class="stats" aria-label="概要"></section>
+      <!-- 注文 -->
+      <section id="box-orders" class="box" hidden>
+        <div class="page-head">
+          <h1>注文</h1>
+          <div class="page-actions">
+            <span id="updatedAt" class="muted small"></span>
+            <button type="button" id="refresh" class="btn btn-secondary btn-sm">更新</button>
+          </div>
+        </div>
+        <section id="stats" class="stats" aria-label="概要"></section>
+        <div class="panel">
+          <div class="panel-tools">
+            <nav id="tabs" class="tabs" aria-label="絞り込み"></nav>
+            <div class="search"><input id="orderSearch" type="search" placeholder="注文番号・会社名・担当者・電話で探す" aria-label="注文を探す" autocomplete="off"></div>
+          </div>
+          <table class="table" id="table">
+            <thead>
+              <tr>
+                <th>状態</th><th>注文番号</th><th>納品日時</th><th>お客さま</th>
+                <th class="num">食数</th><th class="num">合計</th><th class="act">操作</th>
+              </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+          <div id="list" class="list"></div>
+          <p id="empty" class="empty" hidden></p>
+        </div>
+        <p class="page-foot">「確認済み」は、お店が注文を見た記録です。取り消せません。運営の受注一覧にも、すぐに反映されます。「納品済み」は売上の確定に使います（取り消せます）。</p>
+      </section>
 
-    <div class="panel">
-      <nav id="tabs" class="tabs" aria-label="絞り込み"></nav>
-      <table class="table" id="table">
-        <thead>
-          <tr>
-            <th>状態</th><th>注文番号</th><th>納品日時</th><th>お客さま</th>
-            <th class="num">食数</th><th class="num">合計</th><th class="act">操作</th>
-          </tr>
-        </thead>
-        <tbody id="rows"></tbody>
-      </table>
-      <div id="list" class="list"></div>
-      <p id="empty" class="empty" hidden></p>
-    </div>
+      <!-- 帳票 -->
+      <section id="box-docs" class="box" hidden>
+        <div class="page-head"><h1>帳票</h1><div class="page-actions"><span class="muted small">数字は受注一覧から。紙はブラウザの印刷で PDF にできます。</span></div></div>
+        <div class="panel pad">
+          <div class="toolbar">
+            <label class="toolbar-field"><span>納品日</span><input type="date" id="docDate"></label>
+            <div class="seg" id="docKinds" role="group" aria-label="帳票の種類"></div>
+          </div>
+          <div id="docOrders" class="doc-orders"></div>
+          <div class="toolbar-actions">
+            <button type="button" id="docPrint" class="btn btn-primary">印刷（PDF に保存）</button>
+            <button type="button" id="docCsv" class="btn btn-secondary" hidden>CSV をダウンロード</button>
+            <button type="button" id="docCsvCopy" class="btn btn-secondary" hidden>CSV をコピー</button>
+          </div>
+          <p id="docNote" class="hint"></p>
+        </div>
+        <div id="printArea" class="print-area"></div>
+        <textarea id="csvOut" class="csv-out" readonly hidden aria-label="CSV"></textarea>
+      </section>
 
-    <p class="page-foot">「確認済み」は、お店が注文を見た記録です。取り消せません。運営の受注一覧にも、すぐに反映されます。</p>
-  </main>
+      <!-- 売上 -->
+      <section id="box-sales" class="box" hidden>
+        <div class="page-head"><h1>売上</h1><div class="page-actions"><span class="muted small">テスト注文とキャンセルは数えません。</span></div></div>
+        <div class="toolbar">
+          <label class="toolbar-field"><span>納品月</span><select id="salesMonth"></select></label>
+          <button type="button" id="salesCsv" class="btn btn-secondary btn-sm">この月の CSV</button>
+        </div>
+        <section id="salesStats" class="stats stats-3" aria-label="集計"></section>
+        <div class="panel">
+          <div class="table-wrap">
+            <table class="table table-fixed" id="salesTable">
+              <thead>
+                <tr><th>納品日</th><th>注文番号</th><th>お客さま</th><th class="num">食数</th><th class="num">合計</th><th>確認</th><th>納品</th></tr>
+              </thead>
+              <tbody id="salesRows"></tbody>
+            </table>
+          </div>
+          <p id="salesEmpty" class="empty" hidden>この月の注文はありません。</p>
+        </div>
+        <p class="page-foot">「納品済み」を押した注文が、売上の確定分です。月ごとの手数料の締めにも使います。</p>
+      </section>
+
+      <!-- お店の情報 -->
+      <section id="box-store" class="box" hidden>
+        <div class="page-head"><h1>お店の情報</h1></div>
+        <p class="coming">準備中 ── 文章と写真は【申請】→ 運営が確認して【承認】→ 受注サイトのお店のページへ。住所・電話・Google マップのリンクはすぐに反映されます。</p>
+        <div class="panel pad">
+          <h2 class="h2">お客さまに見える文章・写真（申請 → 承認）</h2>
+          <div class="form-grid">
+            <div class="field"><label for="stIntro">お店の紹介文</label><textarea id="stIntro" disabled placeholder="例：厳選した米油で揚げる、当店自慢のとんかつです。"></textarea></div>
+            <div class="field"><label for="stPhoto">お店の写真（1600×400）</label><input id="stPhoto" type="text" disabled placeholder="写真を選ぶ（準備中）"></div>
+            <div class="field"><label for="stPoint1">こだわり 1</label><input id="stPoint1" type="text" disabled placeholder="見出しと本文"></div>
+            <div class="field"><label for="stPoint2">こだわり 2</label><input id="stPoint2" type="text" disabled placeholder="見出しと本文"></div>
+            <div class="field"><label for="stPoint3">こだわり 3</label><input id="stPoint3" type="text" disabled placeholder="見出しと本文"></div>
+          </div>
+          <h2 class="h2">事実の情報（すぐに反映）</h2>
+          <div class="form-grid">
+            <div class="field"><label for="stAddress">住所</label><input id="stAddress" type="text" disabled placeholder="〒・都道府県・市区町村・番地"></div>
+            <div class="field"><label for="stTel">電話</label><input id="stTel" type="text" disabled placeholder="03-0000-0000"></div>
+            <div class="field"><label for="stMap">Google マップのリンク</label><input id="stMap" type="text" disabled placeholder="お店の Google ビジネスプロフィールの口コミのリンク"></div>
+            <div class="field"><label for="stBank">振込先（請求書に出ます・お客さまのページには出ません）</label><input id="stBank" type="text" disabled placeholder="銀行名・支店・口座"></div>
+          </div>
+          <div class="toolbar-actions"><button type="button" class="btn btn-primary" disabled>申請する（準備中）</button><button type="button" class="btn btn-secondary" disabled>保存（準備中）</button></div>
+        </div>
+      </section>
+
+      <!-- 営業の設定 -->
+      <section id="box-hours" class="box" hidden>
+        <div class="page-head"><h1>営業の設定</h1></div>
+        <p class="coming">準備中 ── ここで変えたものは、承認なしで1分以内に受注サイトへ反映され、運営にメールで知らせます。</p>
+        <div class="panel pad">
+          <div class="form-grid">
+            <div class="field"><label>定休日</label><div class="check-row" id="hoursWeek"></div></div>
+            <div class="field"><label for="hrHoliday">休業日（カレンダーで日付を足す）</label><input id="hrHoliday" type="date" disabled></div>
+            <div class="field"><label for="hrStop">臨時の受付停止</label><select id="hrStop" disabled><option>受付中</option><option>いま受付を止める</option></select></div>
+            <div class="field"><label for="hrLead">締切（納品日の何日前まで）</label><input id="hrLead" type="number" disabled placeholder="例：2"></div>
+            <div class="field"><label for="hrCutoff">締切の時刻</label><input id="hrCutoff" type="time" disabled></div>
+            <div class="field"><label for="hrArea">対応エリア</label><input id="hrArea" type="text" disabled placeholder="例：品川区・港区・目黒区・大田区"></div>
+            <div class="field"><label for="hrMinLot">最小ロット（お店の既定）</label><input id="hrMinLot" type="number" disabled placeholder="例：20"></div>
+          </div>
+          <p class="hint">🔴 もう入っている注文は止まりません。休業日にする日に注文が入っていれば、ここに件数が出ます（準備中）。</p>
+          <div class="toolbar-actions"><button type="button" class="btn btn-primary" disabled>保存（準備中）</button></div>
+        </div>
+      </section>
+
+      <!-- 商品 -->
+      <section id="box-products" class="box" hidden>
+        <div class="page-head"><h1>商品</h1><div class="page-actions"><button type="button" class="btn btn-primary btn-sm" disabled>商品を足す（準備中）</button></div></div>
+        <p class="coming">準備中 ── 商品の名前・値段・説明・写真・アレルギー・お品書き・最小ロットを直して【申請】→ 運営が【承認】→ 受注サイトへ。「公開停止」だけはすぐに反映されます。</p>
+        <div class="panel">
+          <table class="table" id="productsTable">
+            <thead><tr><th>商品名</th><th class="num">値段</th><th class="num">最小ロット</th><th>写真</th><th>公開</th><th class="act">操作</th></tr></thead>
+            <tbody id="productRows"></tbody>
+          </table>
+          <p class="empty">商品の一覧は、Shopify に書く係ができたら ここに出ます。写真は 1720×1290、代替テキストは商品名、自社撮影か権利処理ずみのものだけ。</p>
+        </div>
+      </section>
+
+      <!-- 口コミ -->
+      <section id="box-reviews" class="box" hidden>
+        <div class="page-head"><h1>口コミ</h1></div>
+        <p class="coming">準備中 ── 運営が承認した口コミがここに出ます。返信を書いて【申請】→ 運営が【承認】→ 受注サイトのお店のページへ。</p>
+        <div class="panel"><p class="empty">まだ口コミはありません。納品の翌日に、お客さまへ口コミのお願いが自動で届きます。</p></div>
+      </section>
+
+      <!-- お知らせ -->
+      <section id="box-news" class="box" hidden>
+        <div class="page-head"><h1>お知らせ</h1></div>
+        <div class="panel"><p class="empty">運営からのお知らせはありません。</p></div>
+      </section>
+
+      <!-- 設定 -->
+      <section id="box-settings" class="box" hidden>
+        <div class="page-head"><h1>設定</h1></div>
+        <div class="panel pad">
+          <div class="form-grid">
+            <div class="field">
+              <label for="setName">担当者名（確認・納品済みの記録に残ります）</label>
+              <input id="setName" type="text" maxlength="20" autocomplete="name">
+            </div>
+            <div class="field">
+              <label for="setEmail">ログインID・通知先（メールアドレス）</label>
+              <input id="setEmail" type="text" disabled>
+              <p class="hint">変更は運営（matchimo）へ。お店の側で足せるようにする予定です（準備中）。</p>
+            </div>
+          </div>
+          <div class="toolbar-actions"><button type="button" id="setSave" class="btn btn-primary">担当者名を保存</button></div>
+          <h2 class="h2">パスワード</h2>
+          <p class="muted">パスワードを変えるときは、ログイン画面の「パスワードを忘れた方」から、決め直しのリンクをメールで受け取ってください。</p>
+          <div class="toolbar-actions"><button type="button" id="setPwBtn" class="btn btn-secondary">パスワードを決め直す（ログアウトします）</button></div>
+          <h2 class="h2">ブランド</h2>
+          <p class="muted">同じログインで複数のブランドを持つときは、上の帯で切り替えます。</p>
+        </div>
+      </section>
+    </main>
+  </div>
 </div>
 
 <!-- 注文の詳細（右から出る・スマホは全画面） -->
@@ -216,6 +403,24 @@
     <div class="modal-actions">
       <button type="button" id="modalCancel" class="btn btn-secondary">キャンセル</button>
       <button type="button" id="modalOk" class="btn btn-primary">確認済みにする</button>
+    </div>
+  </div>
+</div>
+
+<!-- 納品済みのダイアログ -->
+<div id="dmodal" class="modal" hidden>
+  <div class="modal-backdrop"></div>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="dmodalTitle">
+    <h2 id="dmodalTitle"></h2>
+    <div id="dmodalBody" class="modal-body"></div>
+    <p id="dmodalNote" class="alert alert-warning small"></p>
+    <div class="field" id="dwhoField">
+      <label for="dwhoName">担当者名（任意）</label>
+      <input id="dwhoName" type="text" maxlength="20" autocomplete="name">
+    </div>
+    <div class="modal-actions">
+      <button type="button" id="dmodalCancel" class="btn btn-secondary">キャンセル</button>
+      <button type="button" id="dmodalOk" class="btn btn-primary"></button>
     </div>
   </div>
 </div>
