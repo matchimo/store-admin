@@ -28,14 +28,15 @@
   var TABS = [['unconfirmed', '未確認'], ['today', '今日'], ['tomorrow', '明日'], ['dayafter', '明後日'], ['all', 'すべて']];
   var KIND = { NEW: '新規', CHANGED: '変更', CANCELLED: 'キャンセル', TEST: 'テスト' };
   var BOXES = [
-    ['home', 'トップ', '🏠'], ['orders', '注文', '📦'], ['docs', '帳票', '🖨'], ['sales', '売上', '📈'],
+    ['requests', '申請', '📨'], ['home', 'トップ', '🏠'], ['orders', '注文', '📦'], ['docs', '帳票', '🖨'], ['sales', '売上', '📈'],
     ['store', 'お店の情報', '🏪'], ['hours', '営業の設定', '🗓'], ['products', '商品', '🍱'], ['reviews', '口コミ', '⭐'],
     ['news', 'お知らせ', '📣'], ['settings', '設定', '⚙']
   ];
   var SOON = ['products', 'reviews'];
   var DOC_KINDS = [['order', '注文書'], ['count', '個数表'], ['label', '貼り札'], ['delivery', '納品書'], ['invoice', '請求書'], ['receipt', '領収書'], ['csv', 'CSV']];
   var S = { api: '', token: '', storeId: '', name: '', data: null, tab: '', box: '', detailKey: '', modalCard: null, sending: false, lastFocus: null,
-    invite: '', notice: '', query: '', deliverCard: null, deliverUndo: false, docDate: '', docKind: 'order', docOff: {}, salesMonth: '', hoursDirty: false, storeDirty: false, holidays: null };
+    invite: '', notice: '', query: '', deliverCard: null, deliverUndo: false, docDate: '', docKind: 'order', docOff: {}, salesMonth: '', hoursDirty: false, storeDirty: false, holidays: null,
+    storyDirty: false, photoFile: null, photos: {}, requests: null, pending: 0, requestsReady: true, reqFilter: 'pending', reqOpen: null, judge: null };
 
   // ---------------------------------------------------------------------------
   // 小さな道具
@@ -103,6 +104,7 @@
     return sha256hex(id).then(function (h) { return (CFG.apiHashes || []).indexOf(h) !== -1; });
   }
   function boxOk(id) {
+    if (id === 'requests') { return !!(S.data && S.data.ops); } // 運営だけ
     for (var i = 0; i < BOXES.length; i++) { if (BOXES[i][0] === id) { return true; } }
     return false;
   }
@@ -194,6 +196,11 @@
 
   function logout(msg) {
     S.token = '';
+    S.requests = null;
+    S.pending = 0;
+    S.photos = {};
+    S.storyDirty = false;
+    S.photoFile = null;
     S.storeId = '';
     S.tab = '';
     S.box = '';
@@ -435,6 +442,7 @@
     }
     S.data = res;
     S.storeId = res.store.id;
+    if (res.ops && S.requests === null) { fetchRequests(); } // 運営：申請の数を左メニューに
     remember(STORE.store, S.storeId);
     showView('shell');
     if (!S.tab) { S.tab = res.counts.unconfirmed > 0 ? 'unconfirmed' : 'today'; }
@@ -464,6 +472,7 @@
     var d = S.data;
     $('whoami').textContent = d.email || '';
     $('whoami').title = d.email || '';
+    $('opsBadge').hidden = !d.ops;
     $('demoBar').hidden = !DEMO;
     $('logout').hidden = DEMO;
     var sel = $('storeSelect');
@@ -521,7 +530,7 @@
 
   function renderNav() {
     var nav = clear($('sidenav'));
-    BOXES.forEach(function (b) {
+    BOXES.filter(function (b) { return b[0] !== 'requests' || (S.data && S.data.ops); }).forEach(function (b) {
       var btn = el('button', 'navbtn' + (S.box === b[0] ? ' is-active' : ''));
       btn.type = 'button';
       btn.setAttribute('data-box', b[0]);
@@ -529,6 +538,7 @@
       btn.appendChild(el('span', 'navicon', b[2]));
       btn.appendChild(el('span', 'navlabel', b[1]));
       if (b[0] === 'orders' && S.data && S.data.counts.unconfirmed > 0) { btn.appendChild(el('span', 'navcount', S.data.counts.unconfirmed)); }
+      if (b[0] === 'requests' && S.pending > 0) { btn.appendChild(el('span', 'navcount', S.pending)); }
       if (SOON.indexOf(b[0]) !== -1) { btn.appendChild(el('span', 'navsoon', '準備中')); }
       btn.addEventListener('click', function () { setBox(b[0], false); });
       nav.appendChild(btn);
@@ -543,6 +553,7 @@
     if (id === 'settings') { return renderSettings(); }
     if (id === 'hours') { return renderHours(); }
     if (id === 'store') { return renderStore(); }
+    if (id === 'requests') { return renderRequests(); }
   }
 
   function openNav() {
@@ -619,7 +630,7 @@
 
     var st = settingsOf();
     var meter = clear($('homeMeter'));
-    [['商品の写真', null], ['アレルギーの表示', null], ['お品書き', null], ['対応エリア', st.areas], ['最小ロット', st.min_lot], ['住所・電話', st.address && st.tel], ['お店の紹介文', null]].forEach(function (x) {
+    [['商品の写真', null], ['アレルギーの表示', null], ['お品書き', null], ['対応エリア', st.areas], ['最小ロット', st.min_lot], ['住所・電話', st.address && st.tel], ['お店の紹介文', st.intro]].forEach(function (x) {
       var r = el('div', 'meter-row');
       r.appendChild(el('span', '', x[0]));
       r.appendChild(x[1] === null ? el('span', 'muted', '未計測') : (x[1] ? el('span', 'meter-ok', '入力ずみ') : el('span', 'meter-ng', '未入力')));
@@ -866,6 +877,7 @@
     if ($('drawer').hidden) { S.detailKey = ''; return; }
     $('drawer').hidden = true;
     S.detailKey = '';
+    S.reqOpen = null;
     if (S.lastFocus && S.lastFocus.focus) { try { S.lastFocus.focus(); } catch (e) { /* 何もしない */ } }
   }
 
@@ -1613,7 +1625,11 @@
   });
   ['input', 'change'].forEach(function (evName) {
     $('box-hours').addEventListener(evName, function (ev) { if (ev.target && ev.target.id !== 'hrHoliday') { markHoursDirty(); } });
-    $('box-store').addEventListener(evName, function () { S.storeDirty = true; $('stUpdated').textContent = DIRTY_TEXT; });
+    $('box-store').addEventListener(evName, function (ev) {
+      var id = ev.target && ev.target.id;
+      if (['stAddress', 'stTel', 'stMap', 'stBank'].indexOf(id) !== -1) { S.storeDirty = true; $('stUpdated').textContent = DIRTY_TEXT; }
+      else if (id && id !== 'stPhoto') { S.storyDirty = true; $('stReqHint').textContent = '申請していない変更があります'; }
+    });
   });
   function hoursInput() {
     var out = { closed_weekdays: [], holidays: (S.holidays || []).slice() };
@@ -1628,6 +1644,7 @@
     var st = settingsOf();
     if (!S.storeDirty) { Object.keys(STORE_FIELDS).forEach(function (k) { $(STORE_FIELDS[k]).value = st[k] || ''; }); }
     $('stUpdated').textContent = S.storeDirty ? DIRTY_TEXT : updatedText(st);
+    renderStory();
   }
   $('stSave').addEventListener('click', function () {
     var out = {};
@@ -1709,8 +1726,332 @@
   // 見本（窓口につながず、架空のお店と注文で画面の形を見せる）
   // ---------------------------------------------------------------------------
 
+  // ---------------------------------------------------------------------------
+  // 申請（お店の情報の文章・写真）── お店が【申請する】→ 運営が【承認】【差し戻し】（2026-10-04・構成の壁打ち §8）
+  // ---------------------------------------------------------------------------
+
+  var STORY_FIELDS = { intro: 'stIntro', point1_title: 'stP1t', point1_body: 'stP1b', point2_title: 'stP2t', point2_body: 'stP2b', point3_title: 'stP3t', point3_body: 'stP3b' };
+  var STORY_LABELS = { intro: 'お店の紹介文', point1_title: 'こだわり1（見出し）', point1_body: 'こだわり1（本文）', point2_title: 'こだわり2（見出し）', point2_body: 'こだわり2（本文）',
+    point3_title: 'こだわり3（見出し）', point3_body: 'こだわり3（本文）', photo_id: 'お店の写真' };
+  var REQ_STATE = { PENDING: '申請中', APPROVED: '承認', REJECTED: '差し戻し', WITHDRAWN: '取り下げ' };
+  var PHOTO_MAX = 4 * 1024 * 1024;
+  var PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
+  /** 写真を窓口から読む（1回読んだら覚える）。まだなら 'loading'、読めなければ ''。 */
+  function photoOf(id, onload) {
+    if (!id) { return ''; }
+    if (Object.prototype.hasOwnProperty.call(S.photos, id)) { return S.photos[id]; }
+    S.photos[id] = 'loading';
+    callApi({ action: 'photo', token: S.token, storeId: S.storeId, id: id }).then(function (res) {
+      S.photos[id] = (res && res.ok && res.data) ? res.data : '';
+      if (onload) { onload(); }
+    }, function () { S.photos[id] = ''; if (onload) { onload(); } });
+    return 'loading';
+  }
+  function photoImg(id, alt, rerender) {
+    var wrap = el('div', 'photo-cell');
+    if (!id) { wrap.appendChild(el('span', 'muted', '（写真なし）')); return wrap; }
+    var data = photoOf(id, rerender);
+    if (data === 'loading') { wrap.appendChild(el('span', 'muted', '写真を読み込み中…')); return wrap; }
+    if (!data) { wrap.appendChild(el('span', 'muted', '（写真を読めませんでした）')); return wrap; }
+    var img = el('img');
+    img.src = data;
+    img.alt = alt || '';
+    wrap.appendChild(img);
+    return wrap;
+  }
+
+  // ---- お店の側：文章・写真の申請 ----
+  function storyValues() {
+    var req = S.data.request;
+    if (req && (req.state === REQ_STATE.PENDING || req.state === REQ_STATE.REJECTED)) { return req.after || {}; }
+    return settingsOf();
+  }
+  function renderStory() {
+    var req = S.data.request || null;
+    var ready = S.data.requestsReady !== false;
+    var pending = !!(req && req.state === REQ_STATE.PENDING);
+    var panel = $('reqStatus');
+    panel.hidden = false;
+    if (!ready) { panel.className = 'box box-warning'; panel.textContent = '申請の箱がまだありません（運営の作業を待っています）。'; }
+    else if (!req) { panel.hidden = true; }
+    else if (pending) { panel.className = 'box box-warning'; panel.textContent = '申請中（' + req.at + '・' + req.by + '）── 運営が確認しています。直したいときは、取り下げてからもう一度申請してください。'; }
+    else if (req.state === REQ_STATE.REJECTED) { panel.className = 'box box-danger'; panel.textContent = '差し戻し（' + req.judgedAt + '）理由：' + req.reason + '　── 直して、もう一度【申請する】を押してください。'; }
+    else if (req.state === REQ_STATE.APPROVED) { panel.className = 'box box-success'; panel.textContent = '承認ずみ（' + req.judgedAt + '）' + (req.synced ? '　受注サイトに反映ずみ（' + req.synced + '）' : '　受注サイトへの反映は運営が行います。'); }
+    else { panel.className = 'box box-gray'; panel.textContent = '前の申請は取り下げました（' + req.judgedAt + '）。直して、もう一度申請できます。'; }
+    if (!S.storyDirty) {
+      var v = storyValues();
+      Object.keys(STORY_FIELDS).forEach(function (k) { $(STORY_FIELDS[k]).value = v[k] || ''; });
+      $('stNote').value = pending ? (req.note || '') : '';
+      $('stPhotoRemove').checked = false;
+      S.photoFile = null;
+      $('stPhoto').value = '';
+      renderPhotoPreview(v.photo_id || '', v.photo_name || '');
+    }
+    Object.keys(STORY_FIELDS).forEach(function (k) { $(STORY_FIELDS[k]).disabled = pending || !ready; });
+    ['stPhoto', 'stPhotoRemove', 'stNote'].forEach(function (id) { $(id).disabled = pending || !ready; });
+    $('stSubmit').hidden = pending || !ready;
+    $('stWithdraw').hidden = !pending;
+    $('stReqHint').textContent = S.storyDirty ? '申請していない変更があります' : '';
+  }
+  function renderPhotoPreview(id, name) {
+    var img = $('stPhotoPreview');
+    if (S.photoFile) { img.src = S.photoFile.data; img.hidden = false; $('stPhotoName').textContent = '新しい写真：' + S.photoFile.name; return; }
+    if (!id) { img.hidden = true; img.removeAttribute('src'); $('stPhotoName').textContent = 'まだ写真はありません。'; return; }
+    var data = photoOf(id, function () { if (S.box === 'store' && !S.photoFile) { renderPhotoPreview(id, name); } });
+    if (data && data !== 'loading') { img.src = data; img.hidden = false; $('stPhotoName').textContent = 'いまの写真：' + (name || ''); }
+    else { img.hidden = true; $('stPhotoName').textContent = data === 'loading' ? '写真を読み込み中…' : '（写真を読めませんでした）'; }
+  }
+  $('stPhoto').addEventListener('change', function () {
+    var f = $('stPhoto').files && $('stPhoto').files[0];
+    if (!f) { return; }
+    if (PHOTO_TYPES.indexOf(f.type) === -1) { $('stPhoto').value = ''; return showNotice('写真は JPEG・PNG・WebP のどれかにしてください。', true); }
+    if (f.size > PHOTO_MAX) { $('stPhoto').value = ''; return showNotice('写真は 4MB までにしてください。', true); }
+    var reader = new FileReader();
+    reader.onload = function () {
+      S.photoFile = { name: f.name, type: f.type, data: String(reader.result) };
+      S.storyDirty = true;
+      $('stPhotoRemove').checked = false;
+      $('stReqHint').textContent = '申請していない変更があります';
+      renderPhotoPreview('', '');
+    };
+    reader.onerror = function () { showNotice('写真を読めませんでした。', true); };
+    reader.readAsDataURL(f);
+  });
+  $('stSubmit').addEventListener('click', function () {
+    if (S.sending) { return; }
+    var fields = {};
+    Object.keys(STORY_FIELDS).forEach(function (k) { fields[k] = $(STORY_FIELDS[k]).value.trim(); });
+    var body = { action: 'submitRequest', token: S.token, storeId: S.storeId, kind: 'story', name: S.name, fields: fields, note: $('stNote').value.trim(), removePhoto: $('stPhotoRemove').checked };
+    if (S.photoFile && !body.removePhoto) { body.photo = S.photoFile; }
+    var sv = storyValues();
+    if (!S.photoFile && !body.removePhoto && sv.photo_id) { body.photoId = sv.photo_id; } // 差し戻しのあとも前の写真を引き継ぐ
+    S.sending = true;
+    busy(true);
+    callApi(body).then(function (res) {
+      S.sending = false;
+      busy(false);
+      if (res && res.error && ['BAD_INPUT', 'BUSY', 'NOT_READY', 'NO_REQUEST_BOOK'].indexOf(res.error.code) !== -1) { return showNotice(res.error.message, true); }
+      if (res && !res.error) { S.storyDirty = false; S.photoFile = null; }
+      render(res, true);
+    }, function (e) {
+      S.sending = false;
+      busy(false);
+      showNotice('申請できませんでした（通信）。もう一度押してください。' + (e && e.message ? '（' + e.message + '）' : ''), true);
+    });
+  });
+  $('stWithdraw').addEventListener('click', function () {
+    var req = S.data.request;
+    if (!req || S.sending) { return; }
+    S.sending = true;
+    busy(true);
+    callApi({ action: 'withdrawRequest', token: S.token, storeId: S.storeId, requestId: req.id, name: S.name }).then(function (res) {
+      S.sending = false;
+      busy(false);
+      S.storyDirty = false;
+      render(res, true);
+    }, function () {
+      S.sending = false;
+      busy(false);
+      showNotice('取り下げできたか分かりません。【更新】を押して確かめてください。', true);
+    });
+  });
+
+  // ---- 運営の側：申請の一覧・見比べ・承認／差し戻し ----
+  function fetchRequests() {
+    callApi({ action: 'listRequests', token: S.token }).then(function (res) {
+      if (!res || res.error) {
+        if (res && res.error && res.error.code === 'LOGIN') { return logout(res.error.message); }
+        S.requests = [];
+        S.requestsReady = false;
+        if (S.box === 'requests') { showNotice((res && res.error && res.error.message) || '申請を読めませんでした。', true); }
+      } else {
+        S.requests = res.requests || [];
+        S.requestsReady = res.ready !== false;
+        S.pending = res.pending || 0;
+      }
+      if (S.box === 'requests') { renderRequests(); }
+      renderNav();
+    }, function () {
+      S.requests = [];
+      if (S.box === 'requests') { showNotice('申請を読めませんでした（通信）。【更新】を押してください。', true); renderRequests(); }
+    });
+  }
+  function reqBadge(r) {
+    var cls = r.state === REQ_STATE.PENDING ? 'badge-danger' : (r.state === REQ_STATE.APPROVED ? (r.synced ? 'badge-success' : 'badge-warning') : (r.state === REQ_STATE.REJECTED ? 'badge-purple' : 'badge-gray'));
+    return el('span', 'badge ' + cls, r.state + (r.state === REQ_STATE.APPROVED ? (r.synced ? '・反映ずみ' : '・未反映') : ''));
+  }
+  function renderRequests() {
+    if (!S.data || !S.data.ops) { return; }
+    var seg = clear($('reqFilter'));
+    [['pending', '申請中'], ['unsynced', '承認・未反映'], ['all', 'すべて']].forEach(function (x) {
+      var b = el('button', '', x[1]);
+      b.type = 'button';
+      b.setAttribute('aria-pressed', S.reqFilter === x[0] ? 'true' : 'false');
+      b.addEventListener('click', function () { S.reqFilter = x[0]; renderRequests(); });
+      seg.appendChild(b);
+    });
+    if (S.requests === null) {
+      clear($('reqRows'));
+      $('reqCount').textContent = '';
+      $('reqEmpty').hidden = false;
+      $('reqEmpty').textContent = '読み込み中…';
+      return fetchRequests();
+    }
+    var f = S.reqFilter;
+    var rows = S.requests.filter(function (r) {
+      if (f === 'all') { return true; }
+      if (f === 'pending') { return r.state === REQ_STATE.PENDING; }
+      return r.state === REQ_STATE.APPROVED && !r.synced;
+    });
+    $('reqCount').textContent = rows.length + '件';
+    var tb = clear($('reqRows'));
+    rows.forEach(function (r) {
+      var tr = el('tr');
+      tr.appendChild(el('td', '', r.at));
+      tr.appendChild(el('td', 'strong', r.storeName));
+      tr.appendChild(el('td', '', r.kind));
+      var tdS = el('td');
+      tdS.appendChild(reqBadge(r));
+      tr.appendChild(tdS);
+      tr.appendChild(el('td', '', r.by));
+      var tdA = el('td', 'act');
+      var open = el('button', 'btn btn-secondary btn-sm', '開く');
+      open.type = 'button';
+      open.addEventListener('click', function (ev) { ev.stopPropagation(); openRequest(r); });
+      tdA.appendChild(open);
+      tr.appendChild(tdA);
+      tr.addEventListener('click', function () { openRequest(r); });
+      tb.appendChild(tr);
+    });
+    $('reqEmpty').hidden = rows.length > 0;
+    $('reqEmpty').textContent = S.requestsReady === false ? '申請の箱がまだありません（窓口の setupRequestBook を実行してください）。' :
+      (f === 'pending' ? '申請中のものはありません。' : '該当する申請はありません。');
+  }
+  $('reqRefresh').addEventListener('click', function () { S.requests = null; renderRequests(); });
+
+  function openRequest(r) {
+    S.reqOpen = r;
+    S.lastFocus = document.activeElement;
+    renderRequestDetail(r);
+    $('drawer').hidden = false;
+  }
+  function renderRequestDetail(r) {
+    $('drawerTitle').textContent = r.storeName + '：' + r.kind + 'の申請';
+    var badges = clear($('drawerBadges'));
+    badges.appendChild(reqBadge(r));
+    var body = clear($('drawerBody'));
+    body.appendChild(section('申請', [['申請日時', r.at], ['申請した人', r.by], ['ひとこと', r.note], ['判断', r.judgedAt ? r.judgedAt + (r.judgedBy ? '（' + r.judgedBy + '）' : '') : ''], ['理由', r.reason], ['Shopify反映', r.synced]]));
+    var sec = el('div', 'section');
+    sec.appendChild(el('h3', '', '変更前 → 変更後（変わった所は色つき）'));
+    var t = el('table', 'diff');
+    var thead = el('thead');
+    var hr = el('tr');
+    ['項目', '変更前', '変更後'].forEach(function (x) { hr.appendChild(el('th', '', x)); });
+    thead.appendChild(hr);
+    t.appendChild(thead);
+    var tbody = el('tbody');
+    var rerender = function () { if (S.reqOpen === r) { renderRequestDetail(r); } };
+    Object.keys(STORY_LABELS).forEach(function (k) {
+      var b = (r.before || {})[k] || '';
+      var av = (r.after || {})[k] || '';
+      var tr = el('tr', b !== av ? 'is-changed' : '');
+      tr.appendChild(el('th', '', STORY_LABELS[k]));
+      if (k === 'photo_id') {
+        var td1 = el('td');
+        td1.appendChild(photoImg(b, '変更前の写真', rerender));
+        tr.appendChild(td1);
+        var td2 = el('td');
+        td2.appendChild(photoImg(av, '変更後の写真', rerender));
+        tr.appendChild(td2);
+      } else {
+        tr.appendChild(el('td', '', b || '（なし）'));
+        tr.appendChild(el('td', '', av || '（なし）'));
+      }
+      tbody.appendChild(tr);
+    });
+    t.appendChild(tbody);
+    sec.appendChild(t);
+    body.appendChild(sec);
+    var foot = clear($('drawerFoot'));
+    var close = el('button', 'btn btn-secondary', '閉じる');
+    close.type = 'button';
+    close.addEventListener('click', closeDetail);
+    foot.appendChild(close);
+    if (r.state === REQ_STATE.PENDING) {
+      var rej = el('button', 'btn btn-secondary', '差し戻し');
+      rej.type = 'button';
+      rej.addEventListener('click', function () { openJudge(r, 'reject'); });
+      foot.appendChild(rej);
+      var ok = el('button', 'btn btn-primary', '承認');
+      ok.type = 'button';
+      ok.addEventListener('click', function () { openJudge(r, 'approve'); });
+      foot.appendChild(ok);
+    }
+  }
+  function openJudge(r, decision) {
+    if (S.sending) { return; }
+    S.judge = { r: r, decision: decision };
+    $('jmodalTitle').textContent = decision === 'approve' ? 'この申請を承認しますか？' : 'この申請を差し戻しますか？';
+    var body = clear($('jmodalBody'));
+    body.appendChild(el('p', 'strong', r.storeName + '：' + r.kind + '（' + r.at + '・' + r.by + '）'));
+    body.appendChild(el('p', 'muted small', decision === 'approve' ?
+      '承認すると、お店の承認済みの内容になり、お店にメールが届きます。受注サイトへの反映は運営の手です（反映したら申請台帳の「Shopify反映」に日時）。' :
+      '理由はお店に届きます。お店は直して、もう一度申請できます。'));
+    $('jreasonField').hidden = decision !== 'reject';
+    $('jreason').value = '';
+    $('jwhoName').value = S.name;
+    $('jmodalMsg').hidden = true;
+    $('jmodalOk').textContent = decision === 'approve' ? '承認する' : '差し戻す';
+    $('jmodalOk').disabled = false;
+    $('jmodal').hidden = false;
+    setTimeout(function () { try { (decision === 'reject' ? $('jreason') : $('jmodalOk')).focus(); } catch (e) { /* 何もしない */ } }, 0);
+  }
+  function closeJudge() { $('jmodal').hidden = true; S.judge = null; }
+  function doJudge() {
+    var j = S.judge;
+    if (!j || S.sending) { return; }
+    var reason = $('jreason').value.trim();
+    if (j.decision === 'reject' && !reason) { $('jmodalMsg').textContent = '差し戻しの理由を1行入れてください（お店に届きます）。'; $('jmodalMsg').hidden = false; return; }
+    S.name = $('jwhoName').value.trim().slice(0, 20);
+    remember(STORE.name, S.name);
+    S.sending = true;
+    $('jmodalOk').disabled = true;
+    busy(true);
+    callApi({ action: 'judgeRequest', token: S.token, requestId: j.r.id, decision: j.decision, reason: reason, name: S.name }).then(function (res) {
+      S.sending = false;
+      busy(false);
+      if (!res || res.error) {
+        $('jmodalOk').disabled = false;
+        if (res && res.error && res.error.code === 'LOGIN') { closeJudge(); return logout(res.error.message); }
+        $('jmodalMsg').textContent = (res && res.error && res.error.message) || '判断を記録できませんでした。';
+        $('jmodalMsg').hidden = false;
+        return;
+      }
+      closeJudge();
+      S.requests = res.requests || [];
+      S.pending = res.pending || 0;
+      closeDetail();
+      showNotice(res.notice || '', false);
+      renderRequests();
+      renderNav();
+    }, function () {
+      S.sending = false;
+      busy(false);
+      closeJudge();
+      showNotice('判断を記録できたか分かりません。【更新】を押して確かめてください。', true);
+    });
+  }
+  $('jmodalOk').addEventListener('click', doJudge);
+  $('jmodalCancel').addEventListener('click', closeJudge);
+  $('jmodal').querySelector('.modal-backdrop').addEventListener('click', closeJudge);
+  $('jreason').addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); doJudge(); } });
+
   var DEMO_EMAIL = 'demo@example.com';
   var demoBooks = null;
+  var demoRequests = null;
+  var demoPhotos = {};
+  var DEMO_SVG = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="200"><rect width="800" height="200" fill="#dbe4ee"/><text x="400" y="110" font-size="28" text-anchor="middle" fill="#3b4a5c" font-family="sans-serif">見本の写真（1600×400）</text></svg>');
 
   function demoLines(spec) {
     return spec.map(function (l) { return { title: l[0], variant: l[3] || '', qty: l[1], price: l[2], subtotal: l[1] * l[2] }; });
@@ -1761,7 +2102,8 @@
   }
   function demoSettings(cw, lead, cutoff, areas, minlot) {
     return { closed_weekdays: cw, holidays: '', stop: '', stop_note: '', stop_until: '', lead_days: lead, cutoff_time: cutoff, areas: areas, min_lot: minlot,
-      address: '', tel: '', map_url: '', bank: '', updatedAt: '', updatedBy: '' };
+      address: '', tel: '', map_url: '', bank: '', updatedAt: '', updatedBy: '',
+      intro: '', point1_title: '', point1_body: '', point2_title: '', point2_body: '', point3_title: '', point3_body: '', photo_id: '', photo_name: '' };
   }
   function demoInit() {
     if (demoBooks) { return; }
@@ -1799,6 +2141,24 @@
       b.settings.updatedAt = jstNow(); b.settings.updatedBy = '見本 太郎（' + DEMO_EMAIL + '）';
     });
     demoBooks[0].settings.holidays = jstDate(12);
+    // 見本の申請：DEMO_002 は承認ずみ（未反映）、DEMO_001 は申請中（写真つき）
+    demoPhotos.DEMOPHOTO_1 = DEMO_SVG;
+    var story2 = { intro: '手作りのオードブルで、会議や懇親会を彩ります。', point1_title: '野菜', point1_body: '近郊の農家から毎朝仕入れています。', point2_title: '', point2_body: '', point3_title: '', point3_body: '', photo_id: '', photo_name: '' };
+    demoBooks[1].settings.intro = story2.intro; demoBooks[1].settings.point1_title = story2.point1_title; demoBooks[1].settings.point1_body = story2.point1_body;
+    demoRequests = [
+      { id: 'RDEMO-2', at: jstNow(), storeId: 'DEMO_002', storeName: '見本オードブル（デモ）', kind: 'お店の情報', state: REQ_STATE.APPROVED, by: '見本 八郎（' + DEMO_EMAIL + '）',
+        after: story2, before: { intro: '', point1_title: '', point1_body: '', point2_title: '', point2_body: '', point3_title: '', point3_body: '', photo_id: '', photo_name: '' },
+        judgedAt: jstNow(), judgedBy: '運営 太郎（' + DEMO_EMAIL + '）', reason: '', synced: '', note: '' },
+      { id: 'RDEMO-1', at: jstNow(), storeId: 'DEMO_001', storeName: '見本弁当（デモ）', kind: 'お店の情報', state: REQ_STATE.PENDING, by: '見本 太郎（' + DEMO_EMAIL + '）',
+        after: { intro: '毎朝炊きたてのご飯と、手づくりのおかず。会議のお弁当は見本弁当へ。', point1_title: 'お米', point1_body: '新潟のコシヒカリを毎朝炊いています。', point2_title: '', point2_body: '', point3_title: '', point3_body: '', photo_id: 'DEMOPHOTO_1', photo_name: 'shop.jpg' },
+        before: { intro: '', point1_title: '', point1_body: '', point2_title: '', point2_body: '', point3_title: '', point3_body: '', photo_id: '', photo_name: '' },
+        judgedAt: '', judgedBy: '', reason: '', synced: '', note: '写真を新しくしました' }
+    ];
+  }
+  function demoLatestRequest(storeId) {
+    var hit = null;
+    demoRequests.forEach(function (r) { if (r.storeId === storeId && !hit) { hit = r; } });
+    return hit;
   }
   function demoBook(storeId) {
     demoInit();
@@ -1818,7 +2178,7 @@
     return {
       ok: true, today: today, tomorrow: jstDate(1), dayAfter: jstDate(2), cards: cards, counts: demoCounts(cards, today, jstDate(1), jstDate(2)),
       email: DEMO_EMAIL, stores: demoBooks.map(function (x) { return { id: x.id, name: x.name }; }),
-      settings: b.settings, open: openStateOf(b.settings, today),
+      settings: b.settings, open: openStateOf(b.settings, today), ops: true, requestsReady: true, request: demoLatestRequest(b.id),
       store: { id: b.id, name: b.name, address: b.settings.address, phone: b.settings.tel, bank: b.settings.bank }, canConfirm: true, logProblem: '', notice: notice || ''
     };
   }
@@ -1844,6 +2204,46 @@
           }
           hit.delivered = { at: jstNow(), by: who };
           return resolve(demoDashboard(body.storeId, '注文番号 ' + hit.orderNumber + ' を納品済みにしました。'));
+        }
+        if (action === 'submitRequest' || action === 'withdrawRequest' || action === 'listRequests' || action === 'judgeRequest' || action === 'photo') {
+          demoInit();
+          if (action === 'photo') { return resolve(demoPhotos[body.id] ? { ok: true, data: demoPhotos[body.id], name: 'demo' } : { ok: false, error: { code: 'NOT_ALLOWED', message: '見本にその写真はありません。' } }); }
+          if (action === 'listRequests') {
+            return resolve({ ok: true, ready: true, requests: demoRequests.slice(), pending: demoRequests.filter(function (r) { return r.state === REQ_STATE.PENDING; }).length });
+          }
+          if (action === 'submitRequest') {
+            var sb = demoBook(body.storeId);
+            var curReq = demoLatestRequest(sb.id);
+            if (curReq && curReq.state === REQ_STATE.PENDING) { return resolve(demoDashboard(sb.id, 'すでに申請中のものがあります。取り下げてから、もう一度申請してください。')); }
+            var before = {}; var after = {};
+            Object.keys(STORY_LABELS).concat(['photo_name']).forEach(function (k) { before[k] = sb.settings[k] || ''; after[k] = (k === 'photo_id' || k === 'photo_name') ? before[k] : String((body.fields || {})[k] || '').trim(); });
+            if (body.removePhoto) { after.photo_id = ''; after.photo_name = ''; }
+            if (body.photo && !body.removePhoto) { var pid = 'DEMOPHOTO_' + (Object.keys(demoPhotos).length + 1); demoPhotos[pid] = body.photo.data; after.photo_id = pid; after.photo_name = body.photo.name; }
+            var same = Object.keys(after).every(function (k) { return after[k] === before[k]; });
+            if (same) { return resolve(demoDashboard(sb.id, '変更がありません（いまの内容と同じです）。')); }
+            demoRequests.unshift({ id: 'RDEMO-' + (demoRequests.length + 1), at: jstNow(), storeId: sb.id, storeName: sb.name, kind: 'お店の情報', state: REQ_STATE.PENDING,
+              by: (body.name ? body.name + '（' + DEMO_EMAIL + '）' : DEMO_EMAIL), after: after, before: before, judgedAt: '', judgedBy: '', reason: '', synced: '', note: String(body.note || '') });
+            return resolve(demoDashboard(sb.id, '申請しました（見本の中だけ。本物では運営にメールが届きます）。'));
+          }
+          if (action === 'withdrawRequest') {
+            var wb = demoBook(body.storeId);
+            demoRequests.forEach(function (r) { if (r.id === body.requestId && r.storeId === wb.id && r.state === REQ_STATE.PENDING) { r.state = REQ_STATE.WITHDRAWN; r.judgedAt = jstNow(); r.judgedBy = DEMO_EMAIL; } });
+            return resolve(demoDashboard(wb.id, '申請を取り下げました。'));
+          }
+          // judgeRequest
+          var target = null;
+          demoRequests.forEach(function (r) { if (r.id === body.requestId) { target = r; } });
+          var noticeJ = '';
+          if (!target) { return resolve({ ok: false, error: { code: 'NOT_FOUND', message: 'その申請が見つかりません。' } }); }
+          if (target.state !== REQ_STATE.PENDING) { noticeJ = 'この申請は、もう判断ずみです（' + target.state + '）。'; }
+          else if (body.decision === 'reject' && !String(body.reason || '').trim()) { return resolve({ ok: false, error: { code: 'BAD_INPUT', message: '差し戻しの理由を1行入れてください（お店に届きます）。' } }); }
+          else {
+            target.state = body.decision === 'approve' ? REQ_STATE.APPROVED : REQ_STATE.REJECTED;
+            target.judgedAt = jstNow(); target.judgedBy = (body.name ? body.name + '（' + DEMO_EMAIL + '）' : DEMO_EMAIL); target.reason = body.decision === 'reject' ? String(body.reason).trim() : '';
+            if (body.decision === 'approve') { var tb = demoBook(target.storeId); Object.keys(target.after).forEach(function (k) { tb.settings[k] = target.after[k]; }); }
+            noticeJ = body.decision === 'approve' ? '承認しました（見本の中だけ。本物ではお店にメールが届きます）。受注サイトへの反映は運営の手です。' : '差し戻しました（見本の中だけ。本物ではお店にメールが届きます）。';
+          }
+          return resolve({ ok: true, ready: true, requests: demoRequests.slice(), pending: demoRequests.filter(function (r) { return r.state === REQ_STATE.PENDING; }).length, notice: noticeJ });
         }
         if (action === 'saveSettings') {
           var bk = demoBook(body.storeId);
