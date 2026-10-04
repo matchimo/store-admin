@@ -381,3 +381,21 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .meter-ok { color: var(--success); font-weight: 600; }
 .meter-ng { color: var(--danger); font-weight: 600; }
 .toolbar-actions .muted { align-self: center; }
+
+/* 申請（お店の情報の文章・写真）と 運営の承認（2026-10-04） */
+.box-danger { background: var(--danger-soft); border: 1px solid var(--danger-border); color: var(--danger); font-weight: 600; }
+.photo-row { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+.photo-row img { max-width: 360px; width: 100%; height: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--gray-soft); }
+.photo-tools { flex: 1 1 220px; min-width: 0; }
+.photo-tools input[type="file"] { width: 100%; font-size: 14px; }
+.check-inline { display: inline-flex; gap: 6px; align-items: center; margin-top: 8px; font-size: 13px; }
+.check-inline input { width: auto; height: auto; margin: 0; }
+.diff .photo-cell .muted { white-space: nowrap; }
+.pad-sm { padding: 8px 12px; }
+.diff { width: 100%; border-collapse: collapse; margin-top: 8px; }
+.diff th, .diff td { padding: 8px; border-bottom: 1px solid var(--border); vertical-align: top; font-size: 13px; text-align: left; white-space: pre-wrap; word-break: break-word; }
+.diff thead th { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.diff tbody th { width: 7.5em; color: var(--muted); font-weight: 600; white-space: nowrap; }
+.diff tbody tr.is-changed td { background: var(--warning-soft); }
+.diff img { max-width: 100%; height: auto; border-radius: 4px; border: 1px solid var(--border); }
+.photo-cell { min-width: 0; }

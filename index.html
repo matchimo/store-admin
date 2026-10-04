@@ -146,6 +146,7 @@
         <span id="storeName" class="store-name"></span>
         <select id="storeSelect" class="select" aria-label="店舗を切り替える" hidden></select>
       </div>
+      <span id="opsBadge" class="badge badge-purple" hidden>運営</span>
       <span id="whoami" class="whoami"></span>
       <button type="button" id="logout" class="btn btn-secondary btn-sm">ログアウト</button>
     </div>
@@ -162,6 +163,22 @@
         <button type="button" id="noticeClose" class="alert-close" aria-label="閉じる">×</button>
       </div>
       <p id="warn" class="alert alert-warning" hidden></p>
+
+      <!-- 申請（運営だけ） -->
+      <section id="box-requests" class="box" hidden>
+        <div class="page-head"><h1>申請</h1><div class="page-actions"><button type="button" id="reqRefresh" class="btn btn-secondary btn-sm">更新</button></div></div>
+        <p class="coming">お店からの申請です。開いて 変更前 → 変更後 を見比べ、【承認】か【差し戻し】を押してください。承認したものは運営が受注サイトに写します（反映したら申請台帳の「Shopify反映」に日時）。</p>
+        <div class="panel">
+          <div class="panel-tools pad-sm"><div class="seg" id="reqFilter"></div><span id="reqCount" class="muted small"></span></div>
+          <div class="table-wrap">
+            <table class="table" id="reqTable">
+              <thead><tr><th>申請日時</th><th>お店</th><th>種類</th><th>状態</th><th>申請した人</th><th class="act"></th></tr></thead>
+              <tbody id="reqRows"></tbody>
+            </table>
+          </div>
+          <p id="reqEmpty" class="empty" hidden></p>
+        </div>
+      </section>
 
       <!-- トップ -->
       <section id="box-home" class="box" hidden>
@@ -280,17 +297,30 @@
       <!-- お店の情報 -->
       <section id="box-store" class="box" hidden>
         <div class="page-head"><h1>お店の情報</h1></div>
-        <p class="coming">文章と写真の【申請】→ 運営の【承認】は準備中です。下の「事実の情報」は、ここで保存すると運営にメールで知らせます（承認なし）。</p>
+        <p class="coming">文章と写真は【申請する】→ 運営が確認して【承認】→ 受注サイトのお店のページへ（反映は運営が行います）。「事実の情報」は承認なしで保存され、運営にメールで知らせます。</p>
         <div class="panel pad">
-          <h2 class="h2">お客さまに見える文章・写真（申請 → 承認・準備中）</h2>
+          <h2 class="h2">お客さまに見える文章・写真（申請 → 運営が承認）</h2>
+          <div id="reqStatus" class="box box-gray" hidden></div>
           <div class="form-grid">
-            <div class="field"><label for="stIntro">お店の紹介文</label><textarea id="stIntro" disabled placeholder="例：厳選した米油で揚げる、当店自慢のとんかつです。"></textarea></div>
-            <div class="field"><label for="stPhoto">お店の写真（1600×400）</label><input id="stPhoto" type="text" disabled placeholder="写真を選ぶ（準備中）"></div>
-            <div class="field"><label for="stPoint1">こだわり 1</label><input id="stPoint1" type="text" disabled placeholder="見出しと本文"></div>
-            <div class="field"><label for="stPoint2">こだわり 2</label><input id="stPoint2" type="text" disabled placeholder="見出しと本文"></div>
-            <div class="field"><label for="stPoint3">こだわり 3</label><input id="stPoint3" type="text" disabled placeholder="見出しと本文"></div>
+            <div class="field field-wide"><label for="stIntro">お店の紹介文（600字まで）</label><textarea id="stIntro" maxlength="600" placeholder="例：厳選した米油で揚げる、当店自慢のとんかつです。"></textarea></div>
+            <div class="field"><label for="stP1t">こだわり 1（見出し・40字）</label><input id="stP1t" type="text" maxlength="40" placeholder="例：お米"></div>
+            <div class="field"><label for="stP1b">こだわり 1（本文・300字）</label><textarea id="stP1b" maxlength="300" placeholder="例：新潟のコシヒカリを毎朝炊いています。"></textarea></div>
+            <div class="field"><label for="stP2t">こだわり 2（見出し）</label><input id="stP2t" type="text" maxlength="40"></div>
+            <div class="field"><label for="stP2b">こだわり 2（本文）</label><textarea id="stP2b" maxlength="300"></textarea></div>
+            <div class="field"><label for="stP3t">こだわり 3（見出し）</label><input id="stP3t" type="text" maxlength="40"></div>
+            <div class="field"><label for="stP3b">こだわり 3（本文）</label><textarea id="stP3b" maxlength="300"></textarea></div>
+            <div class="field field-wide"><label for="stPhoto">お店の写真（横長・1600×400 が目安・JPEG/PNG/WebP・4MB まで）</label>
+              <div class="photo-row">
+                <img id="stPhotoPreview" alt="お店の写真" hidden>
+                <div class="photo-tools">
+                  <input id="stPhoto" type="file" accept="image/jpeg,image/png,image/webp">
+                  <p id="stPhotoName" class="hint"></p>
+                  <label class="check-inline"><input id="stPhotoRemove" type="checkbox"> いまの写真を外す</label>
+                </div>
+              </div></div>
+            <div class="field field-wide"><label for="stNote">運営へのひとこと（任意・200字）</label><input id="stNote" type="text" maxlength="200" placeholder="例：写真を新しいものに変えました"></div>
           </div>
-          <div class="toolbar-actions"><button type="button" class="btn btn-secondary" disabled>申請する（準備中）</button></div>
+          <div class="toolbar-actions"><button type="button" id="stSubmit" class="btn btn-primary">申請する</button><button type="button" id="stWithdraw" class="btn btn-secondary" hidden>申請を取り下げる</button><span id="stReqHint" class="muted small"></span></div>
           <h2 class="h2">事実の情報（承認なしで保存・運営にメール）</h2>
           <div class="form-grid">
             <div class="field"><label for="stAddress">住所</label><input id="stAddress" type="text" maxlength="200" placeholder="〒・都道府県・市区町村・番地"></div>
@@ -429,6 +459,28 @@
     <div class="modal-actions">
       <button type="button" id="dmodalCancel" class="btn btn-secondary">キャンセル</button>
       <button type="button" id="dmodalOk" class="btn btn-primary"></button>
+    </div>
+  </div>
+</div>
+
+<!-- 承認／差し戻しのダイアログ（運営） -->
+<div id="jmodal" class="modal" hidden>
+  <div class="modal-backdrop"></div>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="jmodalTitle">
+    <h2 id="jmodalTitle"></h2>
+    <div id="jmodalBody" class="modal-body"></div>
+    <div class="field" id="jreasonField">
+      <label for="jreason">差し戻しの理由（お店に届きます・必須）</label>
+      <input id="jreason" type="text" maxlength="200" placeholder="例：写真が暗いので、明るいものに">
+    </div>
+    <div class="field">
+      <label for="jwhoName">担当者名（任意）</label>
+      <input id="jwhoName" type="text" maxlength="20" autocomplete="name">
+    </div>
+    <p id="jmodalMsg" class="alert alert-danger small" role="alert" hidden></p>
+    <div class="modal-actions">
+      <button type="button" id="jmodalCancel" class="btn btn-secondary">キャンセル</button>
+      <button type="button" id="jmodalOk" class="btn btn-primary"></button>
     </div>
   </div>
 </div>
