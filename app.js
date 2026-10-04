@@ -32,10 +32,10 @@
     ['store', 'お店の情報', '🏪'], ['hours', '営業の設定', '🗓'], ['products', '商品', '🍱'], ['reviews', '口コミ', '⭐'],
     ['news', 'お知らせ', '📣'], ['settings', '設定', '⚙']
   ];
-  var SOON = ['store', 'hours', 'products', 'reviews'];
+  var SOON = ['products', 'reviews'];
   var DOC_KINDS = [['order', '注文書'], ['count', '個数表'], ['label', '貼り札'], ['delivery', '納品書'], ['invoice', '請求書'], ['receipt', '領収書'], ['csv', 'CSV']];
   var S = { api: '', token: '', storeId: '', name: '', data: null, tab: '', box: '', detailKey: '', modalCard: null, sending: false, lastFocus: null,
-    invite: '', notice: '', query: '', deliverCard: null, deliverUndo: false, docDate: '', docKind: 'order', docOff: {}, salesMonth: '' };
+    invite: '', notice: '', query: '', deliverCard: null, deliverUndo: false, docDate: '', docKind: 'order', docOff: {}, salesMonth: '', hoursDirty: false, storeDirty: false, holidays: null };
 
   // ---------------------------------------------------------------------------
   // 小さな道具
@@ -542,6 +542,7 @@
     if (id === 'sales') { return renderSales(); }
     if (id === 'settings') { return renderSettings(); }
     if (id === 'hours') { return renderHours(); }
+    if (id === 'store') { return renderStore(); }
   }
 
   function openNav() {
@@ -608,15 +609,25 @@
     row2.appendChild(el('span', 'mini-text', later.length + '件 ' + sum(later, function (x) { return x.qty; }) + '食'));
     next.appendChild(row2);
 
+    // 受付の状態（窓口が設定から計算。見本と古い窓口のときは画面で計算）
+    var os = openState();
+    var ho = $('homeOpen');
+    ho.textContent = os.label;
+    ho.className = 'card-big ' + (os.state === 'open' ? 'card-ok' : (os.state === 'stopped' ? 'card-ng' : 'card-warn'));
+    $('homeOpenSub').textContent = os.state === 'stopped' ? ((os.note ? os.note + '　' : '') + (os.until ? shortDate(os.until) + ' まで' : '戻すまで')) :
+      (os.state === 'closed' ? '営業の設定の定休日・休業日によります。' : '休業日・臨時の受付停止は「営業の設定」で切り替えます。');
+
+    var st = settingsOf();
     var meter = clear($('homeMeter'));
-    ['商品の写真', 'アレルギーの表示', 'お品書き', '対応エリア', '最小ロット', 'お店の紹介文'].forEach(function (name) {
+    [['商品の写真', null], ['アレルギーの表示', null], ['お品書き', null], ['対応エリア', st.areas], ['最小ロット', st.min_lot], ['住所・電話', st.address && st.tel], ['お店の紹介文', null]].forEach(function (x) {
       var r = el('div', 'meter-row');
-      r.appendChild(el('span', '', name));
-      r.appendChild(el('span', 'muted', '未計測'));
+      r.appendChild(el('span', '', x[0]));
+      r.appendChild(x[1] === null ? el('span', 'muted', '未計測') : (x[1] ? el('span', 'meter-ok', '入力ずみ') : el('span', 'meter-ng', '未入力')));
       meter.appendChild(r);
     });
   }
   $('homeToUnconf').addEventListener('click', function () { S.tab = 'unconfirmed'; setBox('orders', false); });
+  $('homeToHours').addEventListener('click', function () { setBox('hours', false); });
 
   // ---------------------------------------------------------------------------
   // 注文
@@ -1524,16 +1535,122 @@
     $('loginId').value = email;
     showForgot();
   });
+  // ---------------------------------------------------------------------------
+  // 営業の設定・お店の情報（事実の欄）── 承認なしで保存し、運営にメール（2026-10-04・窓口 saveSettings）
+  // ---------------------------------------------------------------------------
+
+  var HOURS_FIELDS = { stop: 'hrStop', stop_until: 'hrStopUntil', stop_note: 'hrStopNote', lead_days: 'hrLead', cutoff_time: 'hrCutoff', areas: 'hrArea', min_lot: 'hrMinLot' };
+  var STORE_FIELDS = { address: 'stAddress', tel: 'stTel', map_url: 'stMap', bank: 'stBank' };
+  var DIRTY_TEXT = '保存していない変更があります';
+
+  function settingsOf() { return (S.data && S.data.settings) || {}; }
+  function splitList(v) { return String(v == null ? '' : v).split(/[,、;\s]+/).filter(function (x) { return x !== ''; }); }
+  function weekdayOf(ymd) { return new Date(ymd + 'T12:00:00Z').getUTCDay(); }
+  function shortDate(ymd) { var m = /^\d{4}-(\d{2})-(\d{2})$/.exec(ymd || ''); return m ? (+m[1]) + '/' + (+m[2]) + '（' + WEEK[weekdayOf(ymd)] + '）' : (ymd || ''); }
+  /** 受付の状態（窓口の saOpenState_ と同じ決まり。見本と、古い窓口のときに使う） */
+  function openStateOf(st, today) {
+    var until = String(st.stop_until || '');
+    if (String(st.stop || '') === '1' && (!until || until >= today)) { return { state: 'stopped', label: '受付停止中', note: String(st.stop_note || ''), until: until }; }
+    if (splitList(st.closed_weekdays).indexOf(String(weekdayOf(today))) !== -1) { return { state: 'closed', label: '本日は定休日', note: '', until: '' }; }
+    if (splitList(st.holidays).indexOf(today) !== -1) { return { state: 'closed', label: '本日は休業日', note: '', until: '' }; }
+    return { state: 'open', label: '受付中', note: '', until: '' };
+  }
+  function openState() { return S.data.open || openStateOf(settingsOf(), S.data.today); }
+  function ordersOn(date) { return S.data.cards.filter(function (c) { return c.deliveryDate === date && c.want !== KIND.CANCELLED && !c.test; }).length; }
+  function updatedText(st) { return st.updatedAt ? '最終更新 ' + st.updatedAt + (st.updatedBy ? '（' + st.updatedBy + '）' : '') : 'まだ保存していません。'; }
+
   function renderHours() {
-    var box = clear($('hoursWeek'));
-    WEEK.forEach(function (w) {
-      var label = el('label');
-      var cb = el('input');
-      cb.type = 'checkbox';
-      cb.disabled = true;
-      label.appendChild(cb);
-      label.appendChild(document.createTextNode(w));
-      box.appendChild(label);
+    var st = settingsOf();
+    if (!S.hoursDirty) {
+      S.holidays = splitList(st.holidays);
+      var box = clear($('hoursWeek'));
+      var closed = splitList(st.closed_weekdays);
+      WEEK.forEach(function (w, i) {
+        var label = el('label');
+        var cb = el('input');
+        cb.type = 'checkbox';
+        cb.value = String(i);
+        cb.checked = closed.indexOf(String(i)) !== -1;
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(w));
+        box.appendChild(label);
+      });
+      Object.keys(HOURS_FIELDS).forEach(function (k) { $(HOURS_FIELDS[k]).value = st[k] || ''; });
+    }
+    renderHolidayChips();
+    $('hrUpdated').textContent = S.hoursDirty ? DIRTY_TEXT : updatedText(st);
+  }
+  function markHoursDirty() { S.hoursDirty = true; $('hrUpdated').textContent = DIRTY_TEXT; }
+  function renderHolidayChips() {
+    var list = clear($('hrHolidayList'));
+    var warn = [];
+    var days = S.holidays || [];
+    days.forEach(function (d) {
+      var chip = el('span', 'chip');
+      chip.appendChild(document.createTextNode(shortDate(d)));
+      chip.title = d;
+      var x = el('button', 'chip-x', '×');
+      x.type = 'button';
+      x.setAttribute('aria-label', d + ' を外す');
+      x.addEventListener('click', function () { S.holidays = (S.holidays || []).filter(function (y) { return y !== d; }); markHoursDirty(); renderHolidayChips(); });
+      chip.appendChild(x);
+      list.appendChild(chip);
+      var n = ordersOn(d);
+      if (n > 0) { warn.push(shortDate(d) + ' に ' + n + '件'); }
+    });
+    if (!days.length) { list.appendChild(el('span', 'muted small', '休業日はありません。')); }
+    $('hrOrdersOnHolidays').textContent = warn.length ? '🔴 休業日にした日に、もう注文が入っています：' + warn.join('、') + '。これらの注文は止まりません（お客さまと直接ご相談ください）。' : '';
+  }
+  $('hrHolidayAdd').addEventListener('click', function () {
+    var v = $('hrHoliday').value;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) { return showNotice('休業日にする日付を選んでください。', true); }
+    if (v < S.data.today) { return showNotice('過ぎた日は休業日にできません。', true); }
+    if (!S.holidays) { S.holidays = splitList(settingsOf().holidays); }
+    if (S.holidays.indexOf(v) === -1) { S.holidays.push(v); S.holidays.sort(); }
+    $('hrHoliday').value = '';
+    markHoursDirty();
+    renderHolidayChips();
+  });
+  ['input', 'change'].forEach(function (evName) {
+    $('box-hours').addEventListener(evName, function (ev) { if (ev.target && ev.target.id !== 'hrHoliday') { markHoursDirty(); } });
+    $('box-store').addEventListener(evName, function () { S.storeDirty = true; $('stUpdated').textContent = DIRTY_TEXT; });
+  });
+  function hoursInput() {
+    var out = { closed_weekdays: [], holidays: (S.holidays || []).slice() };
+    var cbs = $('hoursWeek').querySelectorAll('input');
+    for (var i = 0; i < cbs.length; i++) { if (cbs[i].checked) { out.closed_weekdays.push(cbs[i].value); } }
+    Object.keys(HOURS_FIELDS).forEach(function (k) { out[k] = $(HOURS_FIELDS[k]).value.trim(); });
+    return out;
+  }
+  $('hrSave').addEventListener('click', function () { saveSettings('hours', hoursInput()); });
+
+  function renderStore() {
+    var st = settingsOf();
+    if (!S.storeDirty) { Object.keys(STORE_FIELDS).forEach(function (k) { $(STORE_FIELDS[k]).value = st[k] || ''; }); }
+    $('stUpdated').textContent = S.storeDirty ? DIRTY_TEXT : updatedText(st);
+  }
+  $('stSave').addEventListener('click', function () {
+    var out = {};
+    Object.keys(STORE_FIELDS).forEach(function (k) { out[k] = $(STORE_FIELDS[k]).value.trim(); });
+    saveSettings('store', out);
+  });
+  /** 窓口に保存を頼む。読めない値（BAD_INPUT）は入力を残したまま一言。成功なら新しい一覧で描き直す */
+  function saveSettings(scope, settings) {
+    if (S.sending) { return; }
+    S.sending = true;
+    busy(true);
+    callApi({ action: 'saveSettings', token: S.token, storeId: S.storeId, scope: scope, name: S.name, settings: settings }).then(function (res) {
+      S.sending = false;
+      busy(false);
+      if (res && res.error && (res.error.code === 'BAD_INPUT' || res.error.code === 'BUSY')) { return showNotice(res.error.message, true); }
+      if (res && !res.error) {
+        if (scope === 'hours') { S.hoursDirty = false; S.holidays = null; } else { S.storeDirty = false; }
+      }
+      render(res, true);
+    }, function (e) {
+      S.sending = false;
+      busy(false);
+      showNotice('保存できませんでした（通信）。もう一度押してください。' + (e && e.message ? '（' + e.message + '）' : ''), true);
     });
   }
 
@@ -1642,6 +1759,10 @@
     });
     return counts;
   }
+  function demoSettings(cw, lead, cutoff, areas, minlot) {
+    return { closed_weekdays: cw, holidays: '', stop: '', stop_note: '', stop_until: '', lead_days: lead, cutoff_time: cutoff, areas: areas, min_lot: minlot,
+      address: '', tel: '', map_url: '', bank: '', updatedAt: '', updatedBy: '' };
+  }
   function demoInit() {
     if (demoBooks) { return; }
     var B = ['見本の幕の内弁当', 1, 1200];
@@ -1651,7 +1772,7 @@
     var ros = function (q) { return ['見本のロースかつ弁当', q, 1300]; };
     void B;
     demoBooks = [
-      { id: 'DEMO_001', name: '見本弁当（デモ）', address: '〒140-0000 東京都品川区見本1-2-3', phone: '03-0000-0000', bank: '見本銀行 本店 普通 0000000 ミホンベントウ（カ', cards: [
+      { id: 'DEMO_001', name: '見本弁当（デモ）', address: '〒140-0000 東京都品川区見本1-2-3', phone: '03-0000-0000', bank: '見本銀行 本店 普通 0000000 ミホンベントウ（カ', settings: demoSettings('0', '2', '15:00', '品川区・港区・目黒区・大田区', '20'), cards: [
         { number: '1101', day: -20, company: '株式会社見本商事', dept: '総務部', orderer: '見本 太郎', kana: 'みほん たろう', lines: [bento(30)], confirmed: true, delivered: true },
         { number: '1102', day: -12, company: '見本工業株式会社', dept: '人事部', orderer: '見本 花子', lines: [shoka(15)], confirmed: true, delivered: true },
         { number: '1103', day: -5, company: '見本法律事務所', orderer: '見本 次郎', lines: [bento(20)], confirmed: true, billing: '現金払い' },
@@ -1666,13 +1787,18 @@
         { number: '1111', day: 2, slot: '11:00-12:00', company: '見本保険株式会社', dept: '企画部', orderer: '見本 七子', lines: [toku(30), bento(10)] },
         { number: '1112', day: 7, company: '株式会社見本商事', dept: '総務部', orderer: '見本 太郎', lines: [bento(60)] }
       ] },
-      { id: 'DEMO_002', name: '見本オードブル（デモ）', address: '〒140-0000 東京都品川区見本4-5-6', phone: '03-0000-0001', bank: '見本銀行 本店 普通 0000001 ミホンオードブル（カ', cards: [
+      { id: 'DEMO_002', name: '見本オードブル（デモ）', address: '〒140-0000 東京都品川区見本4-5-6', phone: '03-0000-0001', bank: '見本銀行 本店 普通 0000001 ミホンオードブル（カ', settings: demoSettings('0,1', '3', '12:00', '品川区・大田区', '5'), cards: [
         { number: '2101', day: -8, company: '見本不動産株式会社', orderer: '見本 八郎', lines: [['見本のオードブル A', 3, 6000]], confirmed: true, delivered: true },
         { number: '2102', day: 1, slot: '17:00-18:00', company: '見本ホールディングス', dept: '秘書室', orderer: '見本 九子', lines: [['見本のオードブル B', 5, 8000], ['見本のサラダ', 5, 1500]], confirmed: true },
         { number: '2103', day: 3, slot: '18:00-19:00', company: '見本商店会', orderer: '見本 十郎', lines: [['見本のオードブル A', 10, 6000]] }
       ] }
     ];
-    demoBooks.forEach(function (b) { b.cards = b.cards.map(demoCard); });
+    demoBooks.forEach(function (b) {
+      b.cards = b.cards.map(demoCard);
+      b.settings.address = b.address; b.settings.tel = b.phone; b.settings.bank = b.bank;
+      b.settings.updatedAt = jstNow(); b.settings.updatedBy = '見本 太郎（' + DEMO_EMAIL + '）';
+    });
+    demoBooks[0].settings.holidays = jstDate(12);
   }
   function demoBook(storeId) {
     demoInit();
@@ -1692,7 +1818,8 @@
     return {
       ok: true, today: today, tomorrow: jstDate(1), dayAfter: jstDate(2), cards: cards, counts: demoCounts(cards, today, jstDate(1), jstDate(2)),
       email: DEMO_EMAIL, stores: demoBooks.map(function (x) { return { id: x.id, name: x.name }; }),
-      store: { id: b.id, name: b.name, address: b.address, phone: b.phone, bank: b.bank }, canConfirm: true, logProblem: '', notice: notice || ''
+      settings: b.settings, open: openStateOf(b.settings, today),
+      store: { id: b.id, name: b.name, address: b.settings.address, phone: b.settings.tel, bank: b.settings.bank }, canConfirm: true, logProblem: '', notice: notice || ''
     };
   }
   function demoApi(body) {
@@ -1717,6 +1844,24 @@
           }
           hit.delivered = { at: jstNow(), by: who };
           return resolve(demoDashboard(body.storeId, '注文番号 ' + hit.orderNumber + ' を納品済みにしました。'));
+        }
+        if (action === 'saveSettings') {
+          var bk = demoBook(body.storeId);
+          var keys = body.scope === 'store' ? ['address', 'tel', 'map_url', 'bank'] : ['closed_weekdays', 'holidays', 'stop', 'stop_note', 'stop_until', 'lead_days', 'cutoff_time', 'areas', 'min_lot'];
+          var inp = body.settings || {};
+          var td = jstDate(0);
+          var changed = 0;
+          keys.forEach(function (k) {
+            var v = inp[k];
+            if (k === 'closed_weekdays' || k === 'holidays') {
+              var arr = (Array.isArray(v) ? v : splitList(v)).filter(function (x, i, all) { return (k === 'holidays' ? x >= td : /^[0-6]$/.test(x)) && all.indexOf(x) === i; });
+              v = arr.sort().join(',');
+            } else if (k === 'stop') { v = (v === '1' || v === true) ? '1' : ''; } else { v = String(v == null ? '' : v).trim(); }
+            if (bk.settings[k] !== v) { bk.settings[k] = v; changed++; }
+          });
+          var lbl = body.scope === 'store' ? 'お店の情報' : '営業の設定';
+          if (changed) { bk.settings.updatedAt = jstNow(); bk.settings.updatedBy = (body.name ? body.name + '（' + DEMO_EMAIL + '）' : DEMO_EMAIL); }
+          return resolve(demoDashboard(body.storeId, changed ? lbl + 'を保存しました（見本の中だけ。本物では運営にメールが届きます）。' : lbl + 'に変更はありませんでした。'));
         }
         resolve({ ok: false, error: { code: 'DEMO', message: '見本では使えません。' } });
       }, 150);
