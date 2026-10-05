@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <!--
-  index.html ── matchimo 店舗管理画面（v5・2026-10-04：商品の箱＝追加・編集・写真は申請 → 承認／公開停止は即時）
+  index.html ── matchimo 店舗管理画面（v6・2026-10-05：商品の種類（お弁当4枚／オードブル8枚の写真）・オプション・申請の結果をボタンの横に・黒い左メニュー・上の広告枠）
+  （v5・2026-10-04：商品の箱＝追加・編集・写真は申請 → 承認／公開停止は即時）
   ログインID（＝お店のメールアドレス）とパスワードで入る。パスワードは、お店が招待メールのリンクから決める。
   左の縦メニューで箱を切り替える：トップ／注文／帳票／売上／お店の情報／営業の設定／商品／口コミ（準備中）／お知らせ／設定。運営は「申請」も。
   データは matchimo の窓口（Google Apps Script）から受け取る。帳票はブラウザの印刷（PDF に保存）で出す。
@@ -152,6 +153,22 @@
     </div>
   </header>
   <p id="demoBar" class="demo-bar" hidden>見本データで表示しています（お店・お客さまは架空）。本物の窓口にはつながっていません。</p>
+  <!-- 画面の上の広告枠（運営からのお知らせ）2026-10-05。中身とリンク先は窓口（SA_BANNERS）が決める -->
+  <aside id="adBand" class="ad-band" aria-label="運営からのお知らせ" hidden>
+    <div class="ad-inner">
+      <div class="ad-mark" aria-hidden="true"><span class="ad-logo">matchimo</span><span class="ad-logo-sub">運営サポート</span></div>
+      <p id="adKicker" class="ad-kicker"></p>
+      <div class="ad-main">
+        <p id="adTitle" class="ad-title"></p>
+        <p id="adText" class="ad-text"></p>
+      </div>
+      <div class="ad-cta">
+        <a id="adLink" class="ad-btn" target="_blank" rel="noopener noreferrer" hidden><span id="adLinkText"></span></a>
+        <span id="adSoon" class="ad-btn is-soon" hidden><span id="adSoonText"></span><small>準備中</small></span>
+      </div>
+    </div>
+    <div id="adDots" class="ad-dots" hidden></div>
+  </aside>
 
   <div class="layout">
     <div id="navBackdrop" class="nav-backdrop" hidden></div>
@@ -320,7 +337,7 @@
               </div></div>
             <div class="field field-wide"><label for="stNote">運営へのひとこと（任意・200字）</label><input id="stNote" type="text" maxlength="200" placeholder="例：写真を新しいものに変えました"></div>
           </div>
-          <div class="toolbar-actions"><button type="button" id="stSubmit" class="btn btn-primary">申請する</button><button type="button" id="stWithdraw" class="btn btn-secondary" hidden>申請を取り下げる</button><span id="stReqHint" class="muted small"></span></div>
+          <div class="toolbar-actions"><button type="button" id="stSubmit" class="btn btn-primary">申請する</button><button type="button" id="stWithdraw" class="btn btn-secondary" hidden>申請を取り下げる</button><span id="stResult" class="inline-result" role="status" hidden></span><span id="stReqHint" class="muted small"></span></div>
           <h2 class="h2">事実の情報（承認なしで保存・運営にメール）</h2>
           <div class="form-grid">
             <div class="field"><label for="stAddress">住所</label><input id="stAddress" type="text" maxlength="200" placeholder="〒・都道府県・市区町村・番地"></div>
@@ -366,19 +383,18 @@
           <h2 class="h2" id="prEditTitle">商品を足す</h2>
           <div id="prReqStatus" class="box box-gray" hidden></div>
           <div class="form-grid">
+            <div class="field field-wide"><label for="prType">種類（写真の枚数とオプションの候補が変わります）</label><select id="prType" class="select-type"></select></div>
             <div class="field"><label for="prTitle">商品名（60字まで・必須）</label><input id="prTitle" type="text" maxlength="60" placeholder="例：幕の内弁当"></div>
             <div class="field"><label for="prPrice">値段（税込・円・必須）</label><input id="prPrice" type="number" min="1" max="999999" inputmode="numeric" placeholder="例：1200"></div>
             <div class="field field-wide"><label for="prBody">説明（1000字まで）</label><textarea id="prBody" maxlength="1000" placeholder="例：季節の野菜と焼き魚、だし巻き卵を詰めた定番のお弁当です。"></textarea></div>
-            <div class="field field-wide"><label for="prPhoto">商品の写真（横 1720 × 縦 1290 に自動で合わせます・JPEG/PNG/WebP）</label>
-              <div class="photo-row">
-                <img id="prPhotoPreview" alt="商品の写真" hidden>
-                <div class="photo-tools">
-                  <input id="prPhoto" type="file" accept="image/jpeg,image/png,image/webp">
-                  <p id="prPhotoName" class="hint"></p>
-                  <label class="check-inline"><input id="prRights" type="checkbox"> 自社で撮った写真、または権利処理ずみの写真です（新しい写真のとき必須）</label>
-                  <label class="check-inline"><input id="prPhotoRemove" type="checkbox"> いまの写真を外す</label>
-                </div>
-              </div></div>
+            <div class="field field-wide"><label>商品の写真（<span id="prPhotoMax">4</span>枚まで・1枚目が表紙・横 1720 × 縦 1290 に自動で合わせます・JPEG/PNG/WebP）</label>
+              <div id="prPhotos" class="photo-grid"></div>
+              <div class="photo-add-row">
+                <button type="button" id="prPhotoAdd" class="btn btn-secondary btn-sm">＋ 写真を足す</button>
+                <input id="prPhoto" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden>
+                <p id="prPhotoName" class="hint"></p>
+              </div>
+              <label class="check-inline"><input id="prRights" type="checkbox"> 自社で撮った写真、または権利処理ずみの写真です（新しい写真のとき必須）</label></div>
             <div class="field field-wide"><label>アレルギー（特定原材料・当てはまるものにチェック）</label><div class="check-row" id="prAllergens"></div></div>
             <div class="field"><label for="prAllergensEq">アレルギー（準ずるもの・「、」区切り）</label><input id="prAllergensEq" type="text" maxlength="200" placeholder="例：大豆、さけ、ごま"></div>
             <div class="field"><label for="prAllergensNote">アレルギー補足・コンタミネーション</label><textarea id="prAllergensNote" maxlength="300" placeholder="例：同じ厨房でえびを扱っています"></textarea></div>
@@ -387,16 +403,20 @@
             <div class="field"><label for="prBestBefore">賞味／消費</label><input id="prBestBefore" type="text" maxlength="60" placeholder="例：お受け取りから 4時間以内"></div>
             <div class="field"><label for="prContainer">容器</label><input id="prContainer" type="text" maxlength="60" placeholder="例：紙製（電子レンジ可）"></div>
             <div class="field"><label for="prMinLot">最小ロット（空ならお店の既定）</label><input id="prMinLot" type="number" min="1" max="9999" inputmode="numeric" placeholder="例：10"></div>
+            <div class="field field-wide"><label>オプション（お客さまが選べるもの・<span id="prOptMax">12</span>個まで）</label>
+              <div id="prOptions" class="opt-list"></div>
+              <div id="prOptAddRow" class="opt-add"><span class="muted small">候補から足す：</span><span id="prOptPresets" class="opt-presets"></span><button type="button" id="prOptAdd" class="btn btn-secondary btn-sm">＋ そのほか</button></div>
+              <p class="hint">形は「あり／なし」「1つ選ぶ」「数を入れる」。追加の値段は税込・円で、1食ごと／1注文ごと／1つごと（数を入れる形）にかかります。受注サイトでお客さまが選べるようになるのは、受注サイトの次の作業のあとです（いまは承認すると「商品」シートに記録されます）。</p></div>
             <div class="field field-wide"><label for="prMessage">店舗からの一言</label><textarea id="prMessage" maxlength="300" placeholder="例：会議のお弁当に。前日15時までのご注文で当日お届けします。"></textarea></div>
             <div class="field field-wide"><label for="prNote">運営へのひとこと（任意・200字）</label><input id="prNote" type="text" maxlength="200" placeholder="例：新商品です"></div>
           </div>
-          <div class="toolbar-actions"><button type="button" id="prSubmit" class="btn btn-primary">申請する</button><button type="button" id="prWithdraw" class="btn btn-secondary" hidden>申請を取り下げる</button><button type="button" id="prCancel" class="btn btn-secondary">閉じる</button><span id="prReqHint" class="muted small"></span></div>
+          <div class="toolbar-actions"><button type="button" id="prSubmit" class="btn btn-primary">申請する</button><button type="button" id="prWithdraw" class="btn btn-secondary" hidden>申請を取り下げる</button><button type="button" id="prCancel" class="btn btn-secondary">閉じる</button><span id="prResult" class="inline-result" role="status" hidden></span><span id="prReqHint" class="muted small"></span></div>
         </div>
         <div class="panel">
           <div id="productList" class="product-list"></div>
           <p id="productEmpty" class="empty" hidden></p>
         </div>
-        <p class="page-foot">写真は横 1720 × 縦 1290 に自動で合わせ、代替テキストは商品名になります。自社で撮った写真か、権利処理ずみの写真だけをお使いください。承認した内容を受注サイトに写すのは運営です（写したら運営が【反映した】を押します）。</p>
+        <p class="page-foot">写真はお弁当 4枚・オードブル 8枚まで。横 1720 × 縦 1290 に自動で合わせ、代替テキストは商品名になります。自社で撮った写真か、権利処理ずみの写真だけをお使いください。承認した内容を受注サイトに写すのは運営です（写したら運営が【反映した】を押します）。</p>
       </section>
 
       <!-- 口コミ -->
