@@ -372,6 +372,39 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 @media (prefers-reduced-motion: reduce) { .sidenav { transition: none; } .spinner { animation: none; } }
 
 /* 印刷（帳票だけを紙に） */
+/* 🆕 v7（2026-10-05 夕）大口の返事・お知らせ・通知先・充実度の行から箱へ */
+.btn-danger { background: var(--danger); color: #fff; }
+.btn-danger:hover:not(:disabled) { background: #912018; }
+.btn-warning { background: var(--warning); color: #fff; }
+.btn-warning:hover:not(:disabled) { background: #93370d; }
+.big-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0; }
+.big-choice { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: var(--radius); border: 1px solid var(--border); font-size: 13px; line-height: 1.6; min-width: 0; }
+.big-choice strong { font-size: 14px; }
+.big-choice.is-ok { background: var(--success-soft); border-color: var(--success-border); }
+.big-choice.is-ok strong { color: var(--success); }
+.big-choice.is-ng { background: var(--danger-soft); border-color: var(--danger-border); }
+.big-choice.is-ng strong { color: var(--danger); }
+@media (max-width: 560px) { .big-choices { grid-template-columns: 1fr; } }
+.meter-link { width: 100%; border: 0; background: transparent; padding: 3px 4px; font: inherit; color: inherit; text-align: left; cursor: pointer; border-radius: 6px; align-items: center; }
+.meter-link:hover { background: var(--gray-soft); }
+.meter-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.meter-link .meter-end { display: inline-flex; align-items: center; gap: 6px; }
+.meter-link .chev { color: var(--subtle); }
+.news-list { display: flex; flex-direction: column; }
+.news-item { padding: 14px 16px; border-bottom: 1px solid var(--border); min-width: 0; }
+.news-item:last-child { border-bottom: 0; }
+.news-item.is-unread { background: var(--warning-soft); }
+.news-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; color: var(--muted); font-size: 12px; }
+.news-title { margin: 6px 0 4px; font-size: 15px; overflow-wrap: anywhere; }
+.news-body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.7; }
+.field-label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+#ctCurrent .chip { padding-right: 10px; overflow-wrap: anywhere; height: auto; min-height: 28px; }
+#ctList { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
+#ctWrap { margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--border); }
+#ctWrap > .h2:first-child { margin-top: 0; }
+#ctStatus { margin: 4px 0 14px; }
+#box-news .panel + .panel { margin-top: 16px; }
+
 @media print {
   .topbar, .sidenav, .demo-bar, .ad-band, .nav-backdrop, #notice, #warn, .page-head, .panel, .page-foot, #drawer, #modal, #dmodal, #loading, #csvOut,
   .box:not(#box-docs) { display: none !important; }
