@@ -1,11 +1,11 @@
 /**
- * app.js ── matchimo 店舗管理画面の動き（v2・2026-10-03）
+ * app.js ── matchimo 店舗管理画面の動き（v5・2026-10-04：商品の箱＝追加・編集・写真は申請 → 承認／公開停止は即時／運営の【反映した】）
  *
  * 流れ：お店に送るリンク（…#k=窓口の番号）で開く → ログインID（メールアドレス）とパスワードでログイン → 通行証をこの端末に覚える
  *       → 窓口（Google Apps Script）から注文をもらって、左の縦メニューの箱に分けて見せる
  *       はじめて・忘れたとき：メールのリンク（…#k=窓口の番号&invite=印）で開く → パスワードを決める → そのままログイン
  * 箱：トップ／注文（確認する・納品済み・検索）／帳票（注文書・個数表・貼り札・納品書・請求書・領収書・CSV）／売上／
- *     お店の情報・営業の設定・商品・口コミ・お知らせ（準備中の形だけ）／設定
+ *     お店の情報（文章・写真は申請 → 承認）／営業の設定／商品（追加・編集・写真は申請 → 承認。公開停止は即時）／口コミ・お知らせ（準備中の形だけ）／設定／運営だけの「申請」
  * 🔴 窓口の番号は、config.js の指紋（SHA-256）と合うものだけ使う（偽のリンクでパスワードを送らせないため）。
  * 🔴 お店のデータは必ず textContent で入れる（innerHTML に入れない）。
  * 🔴 Google のログインの印（Cookie）は送らない（credentials: 'omit'）。窓口は通行証だけで判断する。
@@ -32,11 +32,12 @@
     ['store', 'お店の情報', '🏪'], ['hours', '営業の設定', '🗓'], ['products', '商品', '🍱'], ['reviews', '口コミ', '⭐'],
     ['news', 'お知らせ', '📣'], ['settings', '設定', '⚙']
   ];
-  var SOON = ['products', 'reviews'];
+  var SOON = ['reviews'];
   var DOC_KINDS = [['order', '注文書'], ['count', '個数表'], ['label', '貼り札'], ['delivery', '納品書'], ['invoice', '請求書'], ['receipt', '領収書'], ['csv', 'CSV']];
   var S = { api: '', token: '', storeId: '', name: '', data: null, tab: '', box: '', detailKey: '', modalCard: null, sending: false, lastFocus: null,
     invite: '', notice: '', query: '', deliverCard: null, deliverUndo: false, docDate: '', docKind: 'order', docOff: {}, salesMonth: '', hoursDirty: false, storeDirty: false, holidays: null,
-    storyDirty: false, photoFile: null, photos: {}, requests: null, pending: 0, requestsReady: true, reqFilter: 'pending', reqOpen: null, judge: null };
+    storyDirty: false, photoFile: null, photos: {}, requests: null, pending: 0, requestsReady: true, reqFilter: 'pending', reqOpen: null, judge: null,
+    prEdit: null, prDirty: false, prPhotoFile: null, pmodal: null };
 
   // ---------------------------------------------------------------------------
   // 小さな道具
@@ -168,6 +169,7 @@
     if (id !== 'shell') {
       closeConfirm();
       closeDeliver();
+      closePmodal();
       closeDetail();
       closeNav();
     }
@@ -201,6 +203,9 @@
     S.photos = {};
     S.storyDirty = false;
     S.photoFile = null;
+    S.prEdit = null;
+    S.prDirty = false;
+    S.prPhotoFile = null;
     S.storeId = '';
     S.tab = '';
     S.box = '';
@@ -554,6 +559,7 @@
     if (id === 'hours') { return renderHours(); }
     if (id === 'store') { return renderStore(); }
     if (id === 'requests') { return renderRequests(); }
+    if (id === 'products') { return renderProducts(); }
   }
 
   function openNav() {
@@ -629,11 +635,14 @@
       (os.state === 'closed' ? '営業の設定の定休日・休業日によります。' : '休業日・臨時の受付停止は「営業の設定」で切り替えます。');
 
     var st = settingsOf();
+    var prods = productsOf().filter(function (p) { return p.approved; });
+    var every = function (f) { return prods.length ? prods.every(f) : null; }; // 商品が無ければ null（まだ）
     var meter = clear($('homeMeter'));
-    [['商品の写真', null], ['アレルギーの表示', null], ['お品書き', null], ['対応エリア', st.areas], ['最小ロット', st.min_lot], ['住所・電話', st.address && st.tel], ['お店の紹介文', st.intro]].forEach(function (x) {
+    [['商品の写真', every(function (p) { return !!p.photo_id; })], ['アレルギーの表示', every(function (p) { return !!(p.allergens || p.allergens_note); })],
+      ['お品書き', every(function (p) { return !!p.menu_items; })], ['対応エリア', st.areas], ['最小ロット', st.min_lot], ['住所・電話', st.address && st.tel], ['お店の紹介文', st.intro]].forEach(function (x) {
       var r = el('div', 'meter-row');
       r.appendChild(el('span', '', x[0]));
-      r.appendChild(x[1] === null ? el('span', 'muted', '未計測') : (x[1] ? el('span', 'meter-ok', '入力ずみ') : el('span', 'meter-ng', '未入力')));
+      r.appendChild(x[1] === null ? el('span', 'muted', '商品がまだありません') : (x[1] ? el('span', 'meter-ok', '入力ずみ') : el('span', 'meter-ng', '未入力')));
       meter.appendChild(r);
     });
   }
@@ -1086,7 +1095,8 @@
   Array.prototype.forEach.call(document.querySelectorAll('[data-close="drawer"]'), function (b) { b.addEventListener('click', closeDetail); });
   document.addEventListener('keydown', function (ev) {
     if (ev.key !== 'Escape') { return; }
-    if (!$('modal').hidden) { closeConfirm(); } else if (!$('dmodal').hidden) { closeDeliver(); } else if (!$('drawer').hidden) { closeDetail(); } else { closeNav(); }
+    if (!$('modal').hidden) { closeConfirm(); } else if (!$('dmodal').hidden) { closeDeliver(); } else if (!$('pmodal').hidden) { closePmodal(); } else if (!$('jmodal').hidden) { closeJudge(); }
+    else if (!$('drawer').hidden) { closeDetail(); } else { closeNav(); }
   });
 
   // ---------------------------------------------------------------------------
@@ -1684,7 +1694,7 @@
   });
   // 開いたままでも新しい注文が出るように、5分ごとに読み直す（画面が見えていて、ダイアログを開いていないときだけ）
   setInterval(function () {
-    if (document.visibilityState === 'visible' && $('modal').hidden && $('dmodal').hidden && !S.sending && S.data && S.token) { load(S.storeId, true); }
+    if (document.visibilityState === 'visible' && $('modal').hidden && $('dmodal').hidden && $('pmodal').hidden && $('jmodal').hidden && !S.sending && S.data && S.token) { load(S.storeId, true); }
   }, 5 * 60 * 1000);
 
   // ---------------------------------------------------------------------------
@@ -1910,7 +1920,7 @@
       var tr = el('tr');
       tr.appendChild(el('td', '', r.at));
       tr.appendChild(el('td', 'strong', r.storeName));
-      tr.appendChild(el('td', '', r.kind));
+      tr.appendChild(el('td', '', r.kind + (r.subject ? '「' + r.subject + '」' : '')));
       var tdS = el('td');
       tdS.appendChild(reqBadge(r));
       tr.appendChild(tdS);
@@ -1937,7 +1947,7 @@
     $('drawer').hidden = false;
   }
   function renderRequestDetail(r) {
-    $('drawerTitle').textContent = r.storeName + '：' + r.kind + 'の申請';
+    $('drawerTitle').textContent = r.storeName + '：' + r.kind + 'の申請' + (r.subject ? '「' + r.subject + '」' : '');
     var badges = clear($('drawerBadges'));
     badges.appendChild(reqBadge(r));
     var body = clear($('drawerBody'));
@@ -1952,11 +1962,12 @@
     t.appendChild(thead);
     var tbody = el('tbody');
     var rerender = function () { if (S.reqOpen === r) { renderRequestDetail(r); } };
-    Object.keys(STORY_LABELS).forEach(function (k) {
-      var b = (r.before || {})[k] || '';
-      var av = (r.after || {})[k] || '';
+    var labels = r.kind === '商品' ? PRODUCT_LABELS : STORY_LABELS;
+    Object.keys(labels).forEach(function (k) {
+      var b = diffText(k, (r.before || {})[k]);
+      var av = diffText(k, (r.after || {})[k]);
       var tr = el('tr', b !== av ? 'is-changed' : '');
-      tr.appendChild(el('th', '', STORY_LABELS[k]));
+      tr.appendChild(el('th', '', labels[k]));
       if (k === 'photo_id') {
         var td1 = el('td');
         td1.appendChild(photoImg(b, '変更前の写真', rerender));
@@ -1978,6 +1989,12 @@
     close.type = 'button';
     close.addEventListener('click', closeDetail);
     foot.appendChild(close);
+    if (r.state === REQ_STATE.APPROVED && !r.synced) {
+      var syn = el('button', 'btn btn-primary', '受注サイトに反映した');
+      syn.type = 'button';
+      syn.addEventListener('click', function () { doMarkSynced({ requestId: r.id }); });
+      foot.appendChild(syn);
+    }
     if (r.state === REQ_STATE.PENDING) {
       var rej = el('button', 'btn btn-secondary', '差し戻し');
       rej.type = 'button';
@@ -1996,7 +2013,7 @@
     var body = clear($('jmodalBody'));
     body.appendChild(el('p', 'strong', r.storeName + '：' + r.kind + '（' + r.at + '・' + r.by + '）'));
     body.appendChild(el('p', 'muted small', decision === 'approve' ?
-      '承認すると、お店の承認済みの内容になり、お店にメールが届きます。受注サイトへの反映は運営の手です（反映したら申請台帳の「Shopify反映」に日時）。' :
+      '承認すると、お店の承認済みの内容になり、お店にメールが届きます。受注サイトへの反映は運営の手です（写し終えたら、この申請の【受注サイトに反映した】を押します）。' :
       '理由はお店に届きます。お店は直して、もう一度申請できます。'));
     $('jreasonField').hidden = decision !== 'reject';
     $('jreason').value = '';
@@ -2047,11 +2064,417 @@
   $('jmodal').querySelector('.modal-backdrop').addEventListener('click', closeJudge);
   $('jreason').addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); doJudge(); } });
 
+  // ---------------------------------------------------------------------------
+  // 商品（追加・編集・写真は 申請 → 運営が承認／公開停止・公開に戻すは即時）── 2026-10-04 夜（作る順 v2 の 5・窓口 v7）
+  //   一覧＝窓口の products（承認ずみの商品 ＋ まだ承認されていない追加）。欄の値は、申請中・差し戻しなら申請の変更後、そうでなければ承認ずみの値
+  //   写真は画面で 1720×1290 に合わせてから送る（はみ出す分は真ん中で切る・JPEG）。新しい写真には「権利の確認」のチェックが要る
+  // ---------------------------------------------------------------------------
+
+  var PRODUCT_FIELDS = { title: 'prTitle', price: 'prPrice', body: 'prBody', allergens_equivalent: 'prAllergensEq', allergens_note: 'prAllergensNote', menu_items: 'prMenu',
+    menu_portion: 'prPortion', menu_best_before: 'prBestBefore', menu_container: 'prContainer', min_lot: 'prMinLot', vendor_message: 'prMessage' };
+  var PRODUCT_KEYS = ['title', 'price', 'body', 'allergens', 'allergens_equivalent', 'allergens_note', 'menu_items', 'menu_portion', 'menu_best_before', 'menu_container', 'min_lot', 'vendor_message', 'photo_id', 'photo_name'];
+  var PRODUCT_LABELS = { title: '商品名', price: '値段（税込）', body: '説明', allergens: 'アレルギー（特定原材料）', allergens_equivalent: 'アレルギー（準ずるもの）', allergens_note: 'アレルギー補足・コンタミネーション',
+    menu_items: 'お品書き', menu_portion: '内容量', menu_best_before: '賞味/消費', menu_container: '容器', min_lot: '最小ロット', vendor_message: '店舗からの一言', photo_id: '商品の写真' };
+  var ALLERGENS = ['えび', 'カシューナッツ', 'かに', 'くるみ', '小麦', 'そば', '卵', '乳', '落花生'];
+  var PRODUCT_PHOTO = { w: 1720, h: 1290, quality: 0.86 };
+  var PRODUCT_UPLOAD_MAX = 20 * 1024 * 1024;
+
+  function productsOf() { return (S.data && Array.isArray(S.data.products)) ? S.data.products : []; }
+  function productById(id) { var list = productsOf(); for (var i = 0; i < list.length; i++) { if (list[i].id === id) { return list[i]; } } return null; }
+  /** 欄に出す値：申請中・差し戻しなら申請の変更後、そうでなければ承認ずみの値 */
+  function productValues(p) {
+    if (!p) { return {}; }
+    var r = p.request;
+    if (r && (r.state === REQ_STATE.PENDING || r.state === REQ_STATE.REJECTED)) { return r.after || {}; }
+    return p;
+  }
+  /** 見比べの表の文字（アレルギーは ・ 区切り・値段は ¥） */
+  function diffText(k, v) {
+    var s = String(v == null ? '' : v);
+    if (k === 'allergens' || k === 'allergens_equivalent') { return s.split(',').filter(Boolean).join('・'); }
+    if (k === 'price' && s) { return yen(Number(s)); }
+    return s;
+  }
+  function productReqBadge(p) {
+    var r = p.request;
+    if (r && r.state === REQ_STATE.PENDING) { return el('span', 'badge badge-danger', '申請中'); }
+    if (r && r.state === REQ_STATE.REJECTED) { return el('span', 'badge badge-purple', '差し戻し'); }
+    if (!p.approved) { return el('span', 'badge badge-gray', '未承認'); }
+    return el('span', 'badge ' + (p.synced ? 'badge-success' : 'badge-warning'), p.synced ? '反映ずみ' : '承認ずみ・未反映');
+  }
+  function renderProducts() {
+    var ready = !!S.data && Array.isArray(S.data.products);
+    var booked = !S.data || S.data.requestsReady !== false;
+    var warn = $('prReady');
+    warn.hidden = ready && booked;
+    warn.textContent = !ready ? '商品の箱は、窓口の新しい版（v7）を入れると使えます（運営の作業を待っています）。' : (!booked ? '申請の箱がまだありません（運営の作業を待っています）。' : '');
+    $('prAdd').disabled = !(ready && booked);
+    var list = clear($('productList'));
+    var items = productsOf();
+    $('productEmpty').hidden = items.length > 0 || !ready;
+    $('productEmpty').textContent = '商品はまだありません。【商品を足す】から申請してください。';
+    items.forEach(function (p) { list.appendChild(productCard(p)); });
+    renderProductForm();
+  }
+  function productCard(p) {
+    var card = el('div', 'product-card' + (p.status === '停止' ? ' is-stopped' : ''));
+    card.setAttribute('data-product', p.id);
+    var rerender = function () { if (S.box === 'products') { renderProducts(); } };
+    var v = p.approved ? p : productValues(p);
+    var thumb = el('div', 'product-thumb');
+    thumb.appendChild(photoImg(v.photo_id, v.title, rerender));
+    card.appendChild(thumb);
+    var body = el('div', 'product-body');
+    var top = el('div', 'product-top');
+    top.appendChild(el('span', 'product-title', v.title || '（名前なし）'));
+    var badges = el('span', 'badges');
+    if (p.approved) { badges.appendChild(el('span', 'badge ' + (p.status === '停止' ? 'badge-dark' : 'badge-primary'), p.status === '停止' ? '停止中' : '公開中')); }
+    badges.appendChild(productReqBadge(p));
+    top.appendChild(badges);
+    body.appendChild(top);
+    var meta = [];
+    if (v.price) { meta.push(yen(Number(v.price))); }
+    meta.push(v.min_lot ? '最小 ' + v.min_lot + '食' : '最小ロットはお店の既定');
+    if (v.allergens) { meta.push('アレルギー：' + diffText('allergens', v.allergens)); }
+    body.appendChild(el('div', 'product-meta', meta.join('　')));
+    var sub = '';
+    if (p.request && p.request.state === REQ_STATE.REJECTED) { sub = '差し戻し（' + p.request.judgedAt + '）理由：' + p.request.reason; }
+    else if (p.request && p.request.state === REQ_STATE.PENDING) { sub = '申請中（' + p.request.at + '）── 運営が確認しています'; }
+    else if (p.updatedAt) { sub = '最終更新 ' + p.updatedAt + (p.synced ? '　受注サイトに反映ずみ（' + p.synced + '）' : '　受注サイトへの反映は運営が行います'); }
+    body.appendChild(el('div', 'product-sub' + (p.request && p.request.state === REQ_STATE.REJECTED ? ' is-ng' : ''), sub));
+    var acts = el('div', 'product-actions');
+    var edit = el('button', 'btn btn-secondary btn-sm', p.request && p.request.state === REQ_STATE.PENDING ? '申請を見る' : '直す');
+    edit.type = 'button';
+    edit.addEventListener('click', function () { openProductForm(p); });
+    acts.appendChild(edit);
+    if (p.approved) {
+      var stop = el('button', 'btn btn-secondary btn-sm', p.status === '停止' ? '公開に戻す' : '公開停止');
+      stop.type = 'button';
+      stop.addEventListener('click', function () { openPmodal(p, p.status === '停止' ? 'open' : 'stop'); });
+      acts.appendChild(stop);
+      if (S.data.ops && !p.synced) {
+        var syn = el('button', 'btn btn-primary btn-sm', '反映した');
+        syn.type = 'button';
+        syn.addEventListener('click', function () { doMarkSynced({ storeId: S.storeId, productId: p.id }); });
+        acts.appendChild(syn);
+      }
+    }
+    body.appendChild(acts);
+    card.appendChild(body);
+    return card;
+  }
+
+  // ---- 入力（足す・直す）----
+  function openProductForm(p) {
+    S.prEdit = { id: p ? p.id : '' };
+    S.prDirty = false;
+    S.prPhotoFile = null;
+    renderProductForm();
+    $('productEdit').hidden = false;
+    try { $('productEdit').scrollIntoView({ block: 'start' }); } catch (e) { /* 何もしない */ }
+    setTimeout(function () { try { $('prTitle').focus(); } catch (e) { /* 何もしない */ } }, 0);
+  }
+  function closeProductForm() { S.prEdit = null; S.prDirty = false; S.prPhotoFile = null; $('productEdit').hidden = true; }
+  function renderProductForm() {
+    if (!S.prEdit) { $('productEdit').hidden = true; return; }
+    var p = S.prEdit.id ? productById(S.prEdit.id) : null;
+    if (S.prEdit.id && !p) { return closeProductForm(); } // 取り下げなどで一覧から消えた
+    var req = p ? p.request : null;
+    var pending = !!(req && req.state === REQ_STATE.PENDING);
+    var v = productValues(p);
+    $('prEditTitle').textContent = p ? '商品を直す：' + ((p.approved ? p.title : v.title) || '') : '商品を足す';
+    var panel = $('prReqStatus');
+    panel.hidden = !req;
+    if (req) {
+      if (pending) { panel.className = 'box box-warning'; panel.textContent = '申請中（' + req.at + '・' + req.by + '）── 運営が確認しています。直したいときは、取り下げてからもう一度申請してください。'; }
+      else if (req.state === REQ_STATE.REJECTED) { panel.className = 'box box-danger'; panel.textContent = '差し戻し（' + req.judgedAt + '）理由：' + req.reason + '　── 直して、もう一度【申請する】を押してください。'; }
+      else if (req.state === REQ_STATE.APPROVED) { panel.className = 'box box-success'; panel.textContent = '承認ずみ（' + req.judgedAt + '）' + (p.synced ? '　受注サイトに反映ずみ（' + p.synced + '）' : '　受注サイトへの反映は運営が行います。'); }
+      else { panel.hidden = true; }
+    }
+    if (!S.prDirty) {
+      Object.keys(PRODUCT_FIELDS).forEach(function (k) { $(PRODUCT_FIELDS[k]).value = v[k] || ''; });
+      var box = clear($('prAllergens'));
+      var chosen = splitList(v.allergens);
+      ALLERGENS.forEach(function (a) {
+        var label = el('label');
+        var cb = el('input');
+        cb.type = 'checkbox';
+        cb.value = a;
+        cb.checked = chosen.indexOf(a) !== -1;
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(a));
+        box.appendChild(label);
+      });
+      $('prNote').value = pending ? (req.note || '') : '';
+      $('prRights').checked = false;
+      $('prPhotoRemove').checked = false;
+      $('prPhoto').value = '';
+      renderProductPhoto(v.photo_id || '', v.photo_name || '');
+    }
+    Object.keys(PRODUCT_FIELDS).forEach(function (k) { $(PRODUCT_FIELDS[k]).disabled = pending; });
+    Array.prototype.forEach.call($('prAllergens').querySelectorAll('input'), function (cb) { cb.disabled = pending; });
+    ['prPhoto', 'prRights', 'prPhotoRemove', 'prNote'].forEach(function (id) { $(id).disabled = pending; });
+    $('prSubmit').hidden = pending;
+    $('prWithdraw').hidden = !pending;
+    $('prReqHint').textContent = S.prDirty ? '申請していない変更があります' : '';
+  }
+  function renderProductPhoto(id, name) {
+    var img = $('prPhotoPreview');
+    if (S.prPhotoFile) { img.src = S.prPhotoFile.data; img.hidden = false; $('prPhotoName').textContent = '新しい写真：' + S.prPhotoFile.name + '（' + PRODUCT_PHOTO.w + '×' + PRODUCT_PHOTO.h + ' に合わせました）'; return; }
+    if (!id) { img.hidden = true; img.removeAttribute('src'); $('prPhotoName').textContent = 'まだ写真はありません。'; return; }
+    var data = photoOf(id, function () { if (S.box === 'products' && S.prEdit && !S.prPhotoFile) { renderProductPhoto(id, name); } });
+    if (data && data !== 'loading') { img.src = data; img.hidden = false; $('prPhotoName').textContent = 'いまの写真：' + (name || ''); }
+    else { img.hidden = true; $('prPhotoName').textContent = data === 'loading' ? '写真を読み込み中…' : '（写真を読めませんでした）'; }
+  }
+  /** 写真を w×h に合わせる（はみ出す分は真ん中で切る・白地・JPEG）。data: の文字を返す */
+  function fitPhoto(file, w, h, quality) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onerror = function () { reject(new Error('読めない写真')); };
+      reader.onload = function () {
+        var img = new Image();
+        img.onload = function () {
+          try {
+            var canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            var scale = Math.max(w / img.naturalWidth, h / img.naturalHeight);
+            var dw = img.naturalWidth * scale;
+            var dh = img.naturalHeight * scale;
+            var ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, w, h);
+            ctx.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
+            resolve(canvas.toDataURL('image/jpeg', quality));
+          } catch (e) { reject(e); }
+        };
+        img.onerror = function () { reject(new Error('読めない写真')); };
+        img.src = String(reader.result);
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+  $('prPhoto').addEventListener('change', function () {
+    var f = $('prPhoto').files && $('prPhoto').files[0];
+    if (!f) { return; }
+    if (PHOTO_TYPES.indexOf(f.type) === -1) { $('prPhoto').value = ''; return showNotice('写真は JPEG・PNG・WebP のどれかにしてください。', true); }
+    if (f.size > PRODUCT_UPLOAD_MAX) { $('prPhoto').value = ''; return showNotice('写真は 20MB までにしてください。', true); }
+    busy(true);
+    fitPhoto(f, PRODUCT_PHOTO.w, PRODUCT_PHOTO.h, PRODUCT_PHOTO.quality).then(function (data) {
+      busy(false);
+      if (data.length > PHOTO_MAX * 1.37) { $('prPhoto').value = ''; return showNotice('写真を小さくできませんでした。別の写真をお試しください。', true); }
+      S.prPhotoFile = { name: f.name.replace(/\.[^.]+$/, '') + '.jpg', type: 'image/jpeg', data: data };
+      S.prDirty = true;
+      $('prPhotoRemove').checked = false;
+      $('prReqHint').textContent = '申請していない変更があります';
+      renderProductPhoto('', '');
+    }, function () { busy(false); $('prPhoto').value = ''; showNotice('写真を読めませんでした。', true); });
+  });
+  ['input', 'change'].forEach(function (evName) {
+    $('productEdit').addEventListener(evName, function (ev) {
+      var id = ev.target && ev.target.id;
+      if (id && id !== 'prPhoto' && S.prEdit) { S.prDirty = true; $('prReqHint').textContent = '申請していない変更があります'; }
+    });
+  });
+  $('prAdd').addEventListener('click', function () { openProductForm(null); });
+  $('prCancel').addEventListener('click', closeProductForm);
+  $('prSubmit').addEventListener('click', function () {
+    if (S.sending || !S.prEdit) { return; }
+    var fields = {};
+    Object.keys(PRODUCT_FIELDS).forEach(function (k) { fields[k] = $(PRODUCT_FIELDS[k]).value.trim(); });
+    fields.allergens = Array.prototype.filter.call($('prAllergens').querySelectorAll('input'), function (cb) { return cb.checked; }).map(function (cb) { return cb.value; });
+    if (!fields.title) { return showNotice('商品名を入れてください。', true); }
+    if (!fields.price) { return showNotice('値段（税込・円）を入れてください。', true); }
+    var p = S.prEdit.id ? productById(S.prEdit.id) : null;
+    var body = { action: 'submitRequest', token: S.token, storeId: S.storeId, kind: 'product', productId: S.prEdit.id, name: S.name, fields: fields,
+      note: $('prNote').value.trim(), removePhoto: $('prPhotoRemove').checked, rights: $('prRights').checked };
+    if (S.prPhotoFile && !body.removePhoto) {
+      if (!body.rights) { return showNotice('新しい写真は、「自社で撮った写真、または権利処理ずみの写真です」にチェックを入れてから申請してください。', true); }
+      body.photo = S.prPhotoFile;
+    }
+    var pv = productValues(p);
+    if (!S.prPhotoFile && !body.removePhoto && pv.photo_id) { body.photoId = pv.photo_id; } // 差し戻しのあとも前の写真を引き継ぐ
+    S.sending = true;
+    busy(true);
+    callApi(body).then(function (res) {
+      S.sending = false;
+      busy(false);
+      if (res && res.error && ['BAD_INPUT', 'BUSY', 'NOT_READY', 'NO_REQUEST_BOOK', 'NOT_ALLOWED'].indexOf(res.error.code) !== -1) { return showNotice(res.error.message, true); }
+      if (res && !res.error) {
+        S.prDirty = false;
+        S.prPhotoFile = null;
+        if (res.productId) { S.prEdit = { id: String(res.productId) }; } // 追加：いま申請した商品を開いたままにする
+      }
+      render(res, true);
+    }, function (e) {
+      S.sending = false;
+      busy(false);
+      showNotice('申請できませんでした（通信）。もう一度押してください。' + (e && e.message ? '（' + e.message + '）' : ''), true);
+    });
+  });
+  $('prWithdraw').addEventListener('click', function () {
+    var p = S.prEdit && S.prEdit.id ? productById(S.prEdit.id) : null;
+    if (!p || !p.request || S.sending) { return; }
+    S.sending = true;
+    busy(true);
+    callApi({ action: 'withdrawRequest', token: S.token, storeId: S.storeId, requestId: p.request.id, name: S.name }).then(function (res) {
+      S.sending = false;
+      busy(false);
+      S.prDirty = false;
+      if (!p.approved) { S.prEdit = null; } // 追加の取り下げ → 一覧から消える
+      render(res, true);
+    }, function () {
+      S.sending = false;
+      busy(false);
+      showNotice('取り下げできたか分かりません。【更新】を押して確かめてください。', true);
+    });
+  });
+
+  // ---- 公開停止／公開に戻す（承認なし・運営にメール）----
+  function openPmodal(p, want) {
+    if (S.sending) { return; }
+    S.pmodal = { p: p, want: want };
+    $('pmodalTitle').textContent = want === 'stop' ? '「' + p.title + '」を公開停止にしますか？' : '「' + p.title + '」を公開に戻しますか？';
+    $('pmodalNote').textContent = want === 'stop' ?
+      '承認なしで、すぐに運営に伝わります（売り切れ・季節終了のとき）。受注サイトから外す作業は運営が行います。あとで「公開に戻す」を押せます。' :
+      '承認なしで、すぐに運営に伝わります。受注サイトに戻す作業は運営が行います。';
+    $('pwhoName').value = S.name;
+    $('pmodalOk').textContent = want === 'stop' ? '公開停止にする' : '公開に戻す';
+    $('pmodalOk').disabled = false;
+    $('pmodal').hidden = false;
+    setTimeout(function () { try { $('pmodalOk').focus(); } catch (e) { /* 何もしない */ } }, 0);
+  }
+  function closePmodal() { $('pmodal').hidden = true; S.pmodal = null; }
+  function doPmodal() {
+    var m = S.pmodal;
+    if (!m || S.sending) { return; }
+    S.name = $('pwhoName').value.trim().slice(0, 20);
+    remember(STORE.name, S.name);
+    S.sending = true;
+    $('pmodalOk').disabled = true;
+    closePmodal();
+    busy(true);
+    callApi({ action: 'setProductStatus', token: S.token, storeId: S.storeId, productId: m.p.id, status: m.want, name: S.name }).then(function (res) {
+      S.sending = false;
+      busy(false);
+      render(res, true);
+    }, function () {
+      S.sending = false;
+      busy(false);
+      showNotice('切り替えできたか分かりません。【更新】を押して確かめてください。', true);
+    });
+  }
+  $('pmodalOk').addEventListener('click', doPmodal);
+  $('pmodalCancel').addEventListener('click', closePmodal);
+  $('pmodal').querySelector('.modal-backdrop').addEventListener('click', closePmodal);
+  $('pwhoName').addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); doPmodal(); } });
+
+  // ---- 運営の【反映した】（申請台帳の「Shopify反映」と、お店のシートに日時）----
+  function doMarkSynced(target) {
+    if (S.sending) { return; }
+    S.sending = true;
+    busy(true);
+    callApi(Object.assign({ action: 'markSynced', token: S.token, name: S.name }, target)).then(function (res) {
+      S.sending = false;
+      busy(false);
+      if (!res || res.error) {
+        if (res && res.error && res.error.code === 'LOGIN') { return logout(res.error.message); }
+        return showNotice((res && res.error && res.error.message) || '反映ずみにできませんでした。', true);
+      }
+      if (target.requestId) {
+        S.requests = res.requests || [];
+        S.pending = res.pending || 0;
+        closeDetail();
+        showNotice(res.notice || '', false);
+        if (S.box === 'requests') { renderRequests(); }
+        renderNav();
+        return;
+      }
+      render(res, true);
+    }, function () {
+      S.sending = false;
+      busy(false);
+      showNotice('反映ずみにできたか分かりません。【更新】を押して確かめてください。', true);
+    });
+  }
+
   var DEMO_EMAIL = 'demo@example.com';
   var demoBooks = null;
   var demoRequests = null;
   var demoPhotos = {};
   var DEMO_SVG = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="200"><rect width="800" height="200" fill="#dbe4ee"/><text x="400" y="110" font-size="28" text-anchor="middle" fill="#3b4a5c" font-family="sans-serif">見本の写真（1600×400）</text></svg>');
+  var DEMO_SVG_P = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="860" height="645"><rect width="860" height="645" fill="#e9e2d6"/><text x="430" y="335" font-size="34" text-anchor="middle" fill="#5c4a3a" font-family="sans-serif">見本の商品写真（1720×1290）</text></svg>');
+  /** 見本の商品（承認ずみ）。 */
+  function demoProduct(o) {
+    return { id: o.id, approved: true, title: o.title, price: String(o.price), body: o.body || '', allergens: o.allergens || '', allergens_equivalent: o.eq || '', allergens_note: o.note || '',
+      menu_items: o.menu || '', menu_portion: o.portion || '', menu_best_before: o.best || '', menu_container: o.container || '', min_lot: o.min || '', vendor_message: o.msg || '',
+      photo_id: o.photo || '', photo_name: o.photo ? 'photo.jpg' : '', status: o.status || '公開', updatedAt: jstNow(), updatedBy: '運営 太郎（' + DEMO_EMAIL + '）', synced: o.synced ? jstNow() : '', shopify: '' };
+  }
+  /** 見本の申請の変更後・変更前（商品）。 */
+  function demoProductAfter(o) { var out = { id: o.id }; PRODUCT_KEYS.forEach(function (k) { out[k] = String(o[k] == null ? '' : o[k]); }); return out; }
+  function demoProductReqs(storeId) {
+    var reqs = {};
+    demoRequests.forEach(function (r) { if (r.storeId === storeId && r.kind === '商品' && r.after && r.after.id && !reqs[r.after.id]) { reqs[r.after.id] = r; } }); // 新しい順に並んでいる
+    return reqs;
+  }
+  function demoBrief(r) { return { id: r.id, state: r.state, at: r.at, by: r.by, judgedAt: r.judgedAt, judgedBy: r.judgedBy, reason: r.reason, synced: r.synced, note: r.note, after: r.after }; }
+  /** 窓口の products と同じ形：承認ずみ ＋ まだ承認されていない追加（申請中・差し戻し）。 */
+  function demoProducts(b) {
+    var reqs = demoProductReqs(b.id);
+    var out = [];
+    (b.products || []).forEach(function (p) { var o = {}; Object.keys(p).forEach(function (k) { o[k] = p[k]; }); o.approved = true; o.request = reqs[p.id] ? demoBrief(reqs[p.id]) : null; out.push(o); });
+    Object.keys(reqs).forEach(function (pid) {
+      if ((b.products || []).some(function (p) { return p.id === pid; })) { return; }
+      var r = reqs[pid];
+      if (r.state !== REQ_STATE.PENDING && r.state !== REQ_STATE.REJECTED) { return; }
+      var o = { id: pid, approved: false, status: '', updatedAt: '', updatedBy: '', synced: '', shopify: '' };
+      PRODUCT_KEYS.forEach(function (k) { o[k] = String(r.after[k] || ''); });
+      o.request = demoBrief(r);
+      out.push(o);
+    });
+    return out;
+  }
+  function demoApproveProduct(b, r) {
+    var pid = r.after.id;
+    var prev = null;
+    (b.products || []).forEach(function (p) { if (p.id === pid) { prev = p; } });
+    var p = prev || { id: pid, approved: true, status: '公開', shopify: '' };
+    PRODUCT_KEYS.forEach(function (k) { p[k] = String(r.after[k] || ''); });
+    p.updatedAt = jstNow(); p.updatedBy = r.judgedBy; p.synced = '';
+    if (!prev) { b.products = (b.products || []).concat([p]); }
+  }
+  function demoSubmitProduct(body) {
+    var sb = demoBook(body.storeId);
+    var f = body.fields || {};
+    var title = String(f.title || '').trim();
+    var price = String(f.price || '').replace(/[^\d]/g, '');
+    if (!title) { return { ok: false, error: { code: 'BAD_INPUT', message: '商品名を入れてください' } }; }
+    if (!price || Number(price) < 1 || Number(price) > 999999) { return { ok: false, error: { code: 'BAD_INPUT', message: '値段は 1〜999999 の数（税込・円）で' } }; }
+    if (body.photo && !body.rights) { return { ok: false, error: { code: 'BAD_INPUT', message: '商品の写真は、自社で撮ったものか権利処理ずみのものだけです。「権利の確認」にチェックを入れてください。' } }; }
+    var reqs = demoProductReqs(sb.id);
+    var pid = String(body.productId || '');
+    var prev = null;
+    (sb.products || []).forEach(function (p) { if (p.id === pid) { prev = p; } });
+    if (pid && !prev && !reqs[pid]) { return { ok: false, error: { code: 'NOT_ALLOWED', message: 'その商品は、このお店にありません。' } }; }
+    if (!pid) { pid = 'P-DEMO-' + (demoRequests.length + (sb.products || []).length + 10); }
+    if (reqs[pid] && reqs[pid].state === REQ_STATE.PENDING) { return demoDashboard(sb.id, 'この商品は申請中です。取り下げてから、もう一度申請してください。'); }
+    var before = demoProductAfter({ id: pid });
+    var after = demoProductAfter({ id: pid });
+    PRODUCT_KEYS.forEach(function (k) {
+      before[k] = prev ? String(prev[k] || '') : '';
+      var v = k === 'allergens' ? (Array.isArray(f.allergens) ? f.allergens.join(',') : (f.allergens || '')) : (k === 'price' ? price : (f[k] || ''));
+      after[k] = (k === 'photo_id' || k === 'photo_name') ? before[k] : String(v).trim();
+    });
+    if (body.removePhoto) { after.photo_id = ''; after.photo_name = ''; }
+    if (body.photo && !body.removePhoto) { var ph = 'DEMOPHOTO_' + (Object.keys(demoPhotos).length + 1); demoPhotos[ph] = body.photo.data; after.photo_id = ph; after.photo_name = body.photo.name; }
+    else if (!body.removePhoto && body.photoId && !after.photo_id && demoPhotos[body.photoId]) { after.photo_id = String(body.photoId); after.photo_name = 'photo.jpg'; }
+    if (PRODUCT_KEYS.every(function (k) { return after[k] === before[k]; })) { return demoDashboard(sb.id, '変更がありません（いまの内容と同じです）。'); }
+    demoRequests.unshift({ id: 'RDEMO-' + (demoRequests.length + 1), at: jstNow(), storeId: sb.id, storeName: sb.name, kind: '商品', state: REQ_STATE.PENDING, by: (body.name ? body.name + '（' + DEMO_EMAIL + '）' : DEMO_EMAIL),
+      subject: after.title, after: after, before: before, judgedAt: '', judgedBy: '', reason: '', synced: '', note: String(body.note || '') });
+    var out = demoDashboard(sb.id, '申請しました（見本の中だけ。本物では運営にメールが届きます）。');
+    out.productId = pid;
+    return out;
+  }
 
   function demoLines(spec) {
     return spec.map(function (l) { return { title: l[0], variant: l[3] || '', qty: l[1], price: l[2], subtotal: l[1] * l[2] }; });
@@ -2141,6 +2564,14 @@
       b.settings.updatedAt = jstNow(); b.settings.updatedBy = '見本 太郎（' + DEMO_EMAIL + '）';
     });
     demoBooks[0].settings.holidays = jstDate(12);
+    // 見本の商品：見本弁当は 反映ずみ1・停止中（承認ずみ・未反映）1・申請中の追加1。見本オードブルは 1
+    demoPhotos.DEMOPHOTO_P1 = DEMO_SVG_P;
+    demoBooks[0].products = [
+      demoProduct({ id: 'P-DEMO-1', title: '見本の幕の内弁当', price: 1200, body: '季節の野菜と焼き魚、だし巻き卵を詰めた定番のお弁当です。', allergens: 'えび,小麦,卵', eq: '大豆,さけ',
+        menu: '焼き鮭\nだし巻き卵\n季節の煮物', portion: 'ご飯 200g・おかず 6品', best: 'お受け取りから 4時間以内', container: '紙製（電子レンジ可）', min: '10', msg: '会議のお弁当に。前日15時までのご注文で当日お届けします。', photo: 'DEMOPHOTO_P1', synced: true }),
+      demoProduct({ id: 'P-DEMO-2', title: '見本の松花堂弁当', price: 1500, body: '二段の松花堂。', allergens: '小麦,乳', menu: '', min: '', status: '停止' })
+    ];
+    demoBooks[1].products = [demoProduct({ id: 'P-DEMO-4', title: '見本のオードブル A', price: 6000, allergens: 'えび,かに', menu: 'ローストビーフ\n海老のマリネ', min: '2', synced: true })];
     // 見本の申請：DEMO_002 は承認ずみ（未反映）、DEMO_001 は申請中（写真つき）
     demoPhotos.DEMOPHOTO_1 = DEMO_SVG;
     var story2 = { intro: '手作りのオードブルで、会議や懇親会を彩ります。', point1_title: '野菜', point1_body: '近郊の農家から毎朝仕入れています。', point2_title: '', point2_body: '', point3_title: '', point3_body: '', photo_id: '', photo_name: '' };
@@ -2152,12 +2583,18 @@
       { id: 'RDEMO-1', at: jstNow(), storeId: 'DEMO_001', storeName: '見本弁当（デモ）', kind: 'お店の情報', state: REQ_STATE.PENDING, by: '見本 太郎（' + DEMO_EMAIL + '）',
         after: { intro: '毎朝炊きたてのご飯と、手づくりのおかず。会議のお弁当は見本弁当へ。', point1_title: 'お米', point1_body: '新潟のコシヒカリを毎朝炊いています。', point2_title: '', point2_body: '', point3_title: '', point3_body: '', photo_id: 'DEMOPHOTO_1', photo_name: 'shop.jpg' },
         before: { intro: '', point1_title: '', point1_body: '', point2_title: '', point2_body: '', point3_title: '', point3_body: '', photo_id: '', photo_name: '' },
-        judgedAt: '', judgedBy: '', reason: '', synced: '', note: '写真を新しくしました' }
+        judgedAt: '', judgedBy: '', reason: '', synced: '', note: '写真を新しくしました' },
+      { id: 'RDEMO-3', at: jstNow(), storeId: 'DEMO_001', storeName: '見本弁当（デモ）', kind: '商品', state: REQ_STATE.PENDING, by: '見本 太郎（' + DEMO_EMAIL + '）', subject: '見本の季節弁当',
+        after: demoProductAfter({ id: 'P-DEMO-3', title: '見本の季節弁当', price: '1800', body: '旬の食材を使った期間限定のお弁当です。', allergens: 'えび', min_lot: '20', photo_id: 'DEMOPHOTO_P1', photo_name: 'kisetsu.jpg' }),
+        before: demoProductAfter({ id: 'P-DEMO-3' }), judgedAt: '', judgedBy: '', reason: '', synced: '', note: '新商品です' },
+      { id: 'RDEMO-4', at: jstNow(), storeId: 'DEMO_001', storeName: '見本弁当（デモ）', kind: '商品', state: REQ_STATE.APPROVED, by: '見本 太郎（' + DEMO_EMAIL + '）', subject: '見本の松花堂弁当',
+        after: demoProductAfter({ id: 'P-DEMO-2', title: '見本の松花堂弁当', price: '1500', body: '二段の松花堂。', allergens: '小麦,乳' }), before: demoProductAfter({ id: 'P-DEMO-2' }),
+        judgedAt: jstNow(), judgedBy: '運営 太郎（' + DEMO_EMAIL + '）', reason: '', synced: '', note: '' }
     ];
   }
   function demoLatestRequest(storeId) {
     var hit = null;
-    demoRequests.forEach(function (r) { if (r.storeId === storeId && !hit) { hit = r; } });
+    demoRequests.forEach(function (r) { if (r.storeId === storeId && r.kind === 'お店の情報' && !hit) { hit = r; } });
     return hit;
   }
   function demoBook(storeId) {
@@ -2178,7 +2615,7 @@
     return {
       ok: true, today: today, tomorrow: jstDate(1), dayAfter: jstDate(2), cards: cards, counts: demoCounts(cards, today, jstDate(1), jstDate(2)),
       email: DEMO_EMAIL, stores: demoBooks.map(function (x) { return { id: x.id, name: x.name }; }),
-      settings: b.settings, open: openStateOf(b.settings, today), ops: true, requestsReady: true, request: demoLatestRequest(b.id),
+      settings: b.settings, open: openStateOf(b.settings, today), ops: true, requestsReady: true, request: demoLatestRequest(b.id), products: demoProducts(b),
       store: { id: b.id, name: b.name, address: b.settings.address, phone: b.settings.tel, bank: b.settings.bank }, canConfirm: true, logProblem: '', notice: notice || ''
     };
   }
@@ -2205,13 +2642,48 @@
           hit.delivered = { at: jstNow(), by: who };
           return resolve(demoDashboard(body.storeId, '注文番号 ' + hit.orderNumber + ' を納品済みにしました。'));
         }
-        if (action === 'submitRequest' || action === 'withdrawRequest' || action === 'listRequests' || action === 'judgeRequest' || action === 'photo') {
+        if (action === 'submitRequest' || action === 'withdrawRequest' || action === 'listRequests' || action === 'judgeRequest' || action === 'photo' || action === 'setProductStatus' || action === 'markSynced') {
           demoInit();
+          if (action === 'setProductStatus') {
+            var pb = demoBook(body.storeId);
+            var hitP = null;
+            (pb.products || []).forEach(function (p) { if (p.id === body.productId) { hitP = p; } });
+            if (!hitP) { return resolve(demoDashboard(pb.id, 'その商品は、まだ承認されていません（公開の切り替えは承認のあと）。')); }
+            var st = body.status === 'stop' ? '停止' : '公開';
+            var lbl = st === '停止' ? '公開停止' : '公開';
+            if (hitP.status === st) { return resolve(demoDashboard(pb.id, '「' + hitP.title + '」は、もう' + lbl + 'になっています。')); }
+            hitP.status = st; hitP.updatedAt = jstNow(); hitP.updatedBy = (body.name ? body.name + '（' + DEMO_EMAIL + '）' : DEMO_EMAIL); hitP.synced = '';
+            return resolve(demoDashboard(pb.id, '「' + hitP.title + '」を' + lbl + 'にしました（見本の中だけ。本物では運営にメールが届きます）。受注サイトへの反映は運営が行います。'));
+          }
+          if (action === 'markSynced') {
+            if (body.requestId) {
+              var tr = null;
+              demoRequests.forEach(function (r) { if (r.id === body.requestId) { tr = r; } });
+              if (!tr) { return resolve({ ok: false, error: { code: 'NOT_FOUND', message: 'その申請が見つかりません。' } }); }
+              var nt = '';
+              if (tr.state !== REQ_STATE.APPROVED) { nt = 'この申請は承認ではありません（' + tr.state + '）。'; }
+              else if (tr.synced) { nt = 'もう反映ずみです（' + tr.synced + '）。'; }
+              else {
+                tr.synced = jstNow();
+                if (tr.kind === '商品') { (demoBook(tr.storeId).products || []).forEach(function (p) { if (p.id === tr.after.id) { p.synced = tr.synced; } }); }
+                nt = '反映ずみにしました（' + tr.storeName + '：' + tr.kind + (tr.subject ? '「' + tr.subject + '」' : '') + '）。';
+              }
+              return resolve({ ok: true, ready: true, requests: demoRequests.slice(), pending: demoRequests.filter(function (r) { return r.state === REQ_STATE.PENDING; }).length, notice: nt });
+            }
+            var mb = demoBook(body.storeId);
+            var mp = null;
+            (mb.products || []).forEach(function (p) { if (p.id === body.productId) { mp = p; } });
+            if (!mp) { return resolve({ ok: false, error: { code: 'NOT_FOUND', message: 'その商品が見つかりません。' } }); }
+            if (mp.synced) { return resolve(demoDashboard(mb.id, '「' + mp.title + '」は、もう反映ずみです（' + mp.synced + '）。')); }
+            mp.synced = jstNow();
+            return resolve(demoDashboard(mb.id, '「' + mp.title + '」を反映ずみにしました。'));
+          }
           if (action === 'photo') { return resolve(demoPhotos[body.id] ? { ok: true, data: demoPhotos[body.id], name: 'demo' } : { ok: false, error: { code: 'NOT_ALLOWED', message: '見本にその写真はありません。' } }); }
           if (action === 'listRequests') {
             return resolve({ ok: true, ready: true, requests: demoRequests.slice(), pending: demoRequests.filter(function (r) { return r.state === REQ_STATE.PENDING; }).length });
           }
           if (action === 'submitRequest') {
+            if (body.kind === 'product') { return resolve(demoSubmitProduct(body)); }
             var sb = demoBook(body.storeId);
             var curReq = demoLatestRequest(sb.id);
             if (curReq && curReq.state === REQ_STATE.PENDING) { return resolve(demoDashboard(sb.id, 'すでに申請中のものがあります。取り下げてから、もう一度申請してください。')); }
@@ -2240,7 +2712,10 @@
           else {
             target.state = body.decision === 'approve' ? REQ_STATE.APPROVED : REQ_STATE.REJECTED;
             target.judgedAt = jstNow(); target.judgedBy = (body.name ? body.name + '（' + DEMO_EMAIL + '）' : DEMO_EMAIL); target.reason = body.decision === 'reject' ? String(body.reason).trim() : '';
-            if (body.decision === 'approve') { var tb = demoBook(target.storeId); Object.keys(target.after).forEach(function (k) { tb.settings[k] = target.after[k]; }); }
+            if (body.decision === 'approve') {
+              var tb = demoBook(target.storeId);
+              if (target.kind === '商品') { demoApproveProduct(tb, target); } else { Object.keys(target.after).forEach(function (k) { tb.settings[k] = target.after[k]; }); }
+            }
             noticeJ = body.decision === 'approve' ? '承認しました（見本の中だけ。本物ではお店にメールが届きます）。受注サイトへの反映は運営の手です。' : '差し戻しました（見本の中だけ。本物ではお店にメールが届きます）。';
           }
           return resolve({ ok: true, ready: true, requests: demoRequests.slice(), pending: demoRequests.filter(function (r) { return r.state === REQ_STATE.PENDING; }).length, notice: noticeJ });
