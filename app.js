@@ -1,6 +1,7 @@
 /**
- * app.js ── matchimo 店舗管理画面の動き（v6・2026-10-05：商品の種類・写真の並べ替え（お弁当4枚／オードブル8枚）・オプション（候補＋そのほか）・
- *           申請の結果を【申請する】の横に・上の広告枠（中身とリンク先は窓口の banners）。窓口 v8 と組む）
+ * app.js ── matchimo 店舗管理画面の動き（v7・2026-10-05 夕：大口の【作れる】【作れない】（返事は24時間以内）・大口の締切・お知らせ（運営 → お店・画面だけ）・
+ *           通知先の申請（設定）・トップの「大口の返事待ち」とお知らせ・充実度の行から箱へ。窓口 v9 と組む。窓口が v8 以前なら、前の形のまま動く）
+ *   （v6・2026-10-05：商品の種類・写真の並べ替え（お弁当4枚／オードブル8枚）・オプション（候補＋そのほか）・申請の結果を【申請する】の横に・上の広告枠）
  *   （v5・2026-10-04：商品の箱＝追加・編集・写真は申請 → 承認／公開停止は即時／運営の【反映した】）
  *
  * 流れ：お店に送るリンク（…#k=窓口の番号）で開く → ログインID（メールアドレス）とパスワードでログイン → 通行証をこの端末に覚える
@@ -41,7 +42,7 @@
     invite: '', notice: '', query: '', deliverCard: null, deliverUndo: false, docDate: '', docKind: 'order', docOff: {}, salesMonth: '', hoursDirty: false, storeDirty: false, holidays: null,
     storyDirty: false, photoFile: null, photos: {}, requests: null, pending: 0, requestsReady: true, reqFilter: 'pending', reqOpen: null, judge: null,
     prEdit: null, prDirty: false, prPhotos: [], prOptions: [], prResult: null, stResult: null, prLocked: false, prPending: false, pmodal: null,
-    adIndex: 0, adTimer: null, adHold: false };
+    adIndex: 0, adTimer: null, adHold: false, bigCard: null, ctDirty: false, ctResult: null, newsArm: '' };
 
   // ---------------------------------------------------------------------------
   // 小さな道具
@@ -80,6 +81,11 @@
   }
   function jstNow() {
     var d = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    return d.toISOString().slice(0, 10).replace(/-/g, '/') + ' ' + d.toISOString().slice(11, 16);
+  }
+  /** その時刻の日本時間 'yyyy/mm/dd hh:mm'（見本で使う） */
+  function jstStamp(ms) {
+    var d = new Date(ms + 9 * 60 * 60 * 1000);
     return d.toISOString().slice(0, 10).replace(/-/g, '/') + ' ' + d.toISOString().slice(11, 16);
   }
   function cardKey(c) { return c.row + '|' + c.want; }
@@ -606,6 +612,7 @@
       btn.appendChild(el('span', 'navlabel', b[1]));
       if (b[0] === 'orders' && S.data && S.data.counts.unconfirmed > 0) { btn.appendChild(el('span', 'navcount', S.data.counts.unconfirmed)); }
       if (b[0] === 'requests' && S.pending > 0) { btn.appendChild(el('span', 'navcount', S.pending)); }
+      if (b[0] === 'news' && S.data && unreadNews() > 0) { btn.appendChild(el('span', 'navcount', unreadNews())); }
       if (SOON.indexOf(b[0]) !== -1) { btn.appendChild(el('span', 'navsoon', '準備中')); }
       btn.addEventListener('click', function () { setBox(b[0], false); });
       nav.appendChild(btn);
@@ -622,6 +629,7 @@
     if (id === 'store') { return renderStore(); }
     if (id === 'requests') { return renderRequests(); }
     if (id === 'products') { return renderProducts(); }
+    if (id === 'news') { return renderNews(); }
   }
 
   function openNav() {
@@ -696,19 +704,58 @@
     $('homeOpenSub').textContent = os.state === 'stopped' ? ((os.note ? os.note + '　' : '') + (os.until ? shortDate(os.until) + ' まで' : '戻すまで')) :
       (os.state === 'closed' ? '営業の設定の定休日・休業日によります。' : '休業日・臨時の受付停止は「営業の設定」で切り替えます。');
 
+    // 🆕 v7：大口の返事待ち（窓口 v9 で係が動いてから）
+    var bigs = d.cards.filter(function (x) { return x.bigActive; });
+    $('homeBigCard').hidden = !bigReady();
+    if (bigReady()) {
+      var hb = clear($('homeBig'));
+      hb.appendChild(document.createTextNode(String(bigs.length)));
+      hb.appendChild(el('span', 'unit', '件'));
+      $('homeBigCard').className = 'card' + (bigs.length ? ' is-alert' : '');
+      var near = bigs.map(function (x) { return x.bigDue; }).filter(Boolean).sort()[0];
+      $('homeBigSub').textContent = bigs.length ? 'いちばん近い返事の期限：' + near + '（過ぎると「作れる」として確定し、お客さまへ確定のメールが届きます）' :
+        '返事待ちの大口（' + bigQty() + '食以上）はありません。';
+      $('homeToBig').hidden = bigs.length === 0;
+    }
+    // 🆕 v7：運営からのお知らせ（新しい3件・新着の印）
+    var news = newsOf();
+    var hn = clear($('homeNews'));
+    if (!news.length) { hn.appendChild(el('div', 'muted small', 'お知らせはありません。')); }
+    news.slice(0, 3).forEach(function (n) {
+      var row = el('div', 'mini-row');
+      row.appendChild(el('span', 'mini-time', String(n.at || '').slice(5, 10)));
+      row.appendChild(el('span', 'mini-text', n.title));
+      if (isUnreadNews(n)) { row.appendChild(el('span', 'badge badge-danger', '新着')); }
+      hn.appendChild(row);
+    });
+    var unread = unreadNews();
+    $('homeNewsUnread').hidden = unread === 0;
+    $('homeNewsUnread').textContent = '新着 ' + unread;
+    $('homeToNews').hidden = news.length === 0;
+
     var st = settingsOf();
     var prods = productsOf().filter(function (p) { return p.approved; });
     var every = function (f) { return prods.length ? prods.every(f) : null; }; // 商品が無ければ null（まだ）
     var meter = clear($('homeMeter'));
-    [['商品の写真', every(function (p) { return !!p.photo_id; })], ['アレルギーの表示', every(function (p) { return !!(p.allergens || p.allergens_note); })],
-      ['お品書き', every(function (p) { return !!p.menu_items; })], ['対応エリア', st.areas], ['最小ロット', st.min_lot], ['住所・電話', st.address && st.tel], ['お店の紹介文', st.intro]].forEach(function (x) {
-      var r = el('div', 'meter-row');
+    [['商品の写真', every(function (p) { return !!p.photo_id; }), 'products'], ['アレルギーの表示', every(function (p) { return !!(p.allergens || p.allergens_note); }), 'products'],
+      ['お品書き', every(function (p) { return !!p.menu_items; }), 'products'], ['対応エリア', st.areas, 'hours'], ['最小ロット', st.min_lot, 'hours'], ['住所・電話', st.address && st.tel, 'store'],
+      ['お店の紹介文', st.intro, 'store']].forEach(function (x) {
+      // 🆕 v7：行を押すと、その箱へ（入れる所に行ける）
+      var r = el('button', 'meter-row meter-link');
+      r.type = 'button';
       r.appendChild(el('span', '', x[0]));
-      r.appendChild(x[1] === null ? el('span', 'muted', '商品がまだありません') : (x[1] ? el('span', 'meter-ok', '入力ずみ') : el('span', 'meter-ng', '未入力')));
+      var end = el('span', 'meter-end');
+      end.appendChild(x[1] === null ? el('span', 'muted', '商品がまだありません') : (x[1] ? el('span', 'meter-ok', '入力ずみ') : el('span', 'meter-ng', '未入力')));
+      end.appendChild(el('span', 'chev', '›'));
+      r.appendChild(end);
+      r.setAttribute('aria-label', x[0] + '（' + (x[1] === null ? '商品がまだありません' : (x[1] ? '入力ずみ' : '未入力')) + '）を開く');
+      r.addEventListener('click', function () { setBox(x[2], false); });
       meter.appendChild(r);
     });
   }
   $('homeToUnconf').addEventListener('click', function () { S.tab = 'unconfirmed'; setBox('orders', false); });
+  $('homeToBig').addEventListener('click', function () { S.tab = 'unconfirmed'; setBox('orders', false); });
+  $('homeToNews').addEventListener('click', function () { setBox('news', false); });
   $('homeToHours').addEventListener('click', function () { setBox('hours', false); });
 
   // ---------------------------------------------------------------------------
@@ -823,9 +870,16 @@
     box.appendChild(kindBadge(c));
     if (c.test && c.want !== KIND.TEST) { box.appendChild(el('span', 'badge badge-purple', 'テスト')); }
     if (withBig && c.big) { box.appendChild(el('span', 'badge badge-warning', '大口')); }
+    if (c.bigActive) { box.appendChild(el('span', 'badge badge-warning', '返事の期限 ' + shortStamp(c.bigDue))); }
+    if (c.bigReply) { box.appendChild(el('span', 'badge ' + (c.bigReply.state === '作れない' ? 'badge-dark' : 'badge-success'), '大口：' + c.bigReply.state)); }
     if (c.delivered) { box.appendChild(el('span', 'badge badge-primary', '納品済み')); }
     return box;
   }
+  /** 'yyyy/mm/dd hh:mm' → 'm/d hh:mm' */
+  function shortStamp(t) { var m = /^\d{4}\/(\d{2})\/(\d{2}) (\d{2}:\d{2})$/.exec(t || ''); return m ? (+m[1]) + '/' + (+m[2]) + ' ' + m[3] : (t || ''); }
+  /** 🆕 v7：大口の返事が使えるか（窓口 v9・毎時の係が動いたあと） */
+  function bigReady() { return !!(S.data && S.data.big && S.data.big.ready); }
+  function bigQty() { return (S.data && S.data.big && S.data.big.qty) || 200; }
   function whenText(c) { return (c.timeSlot || '') + (c.fulfillment ? '・' + c.fulfillment : ''); }
   function customerText(c) { return [c.company, c.department].filter(Boolean).join(' '); }
   function personText(c) { return c.orderer ? c.orderer + ' 様' + (c.kana ? '（' + c.kana + '）' : '') : ''; }
@@ -902,6 +956,15 @@
 
   /** 表の右端・詳細の下：まだなら「確認する」、済みなら「✓ 確認済み」。納品日が来た確認済みの札には「納品済みにする」。 */
   function actionFor(c, small) {
+    if (c.bigActive && bigReady()) {
+      // 🆕 v7：新しいやり方の大口は【確認する】の代わりに【大口の返事】（作れる／作れない）
+      if (!S.data.canConfirm) { return el('span', 'muted small', '押せません'); }
+      var bb = el('button', 'btn btn-warning' + (small ? ' btn-sm' : ''), '大口の返事（作れる／作れない）');
+      bb.type = 'button';
+      bb.disabled = S.sending;
+      bb.addEventListener('click', function (ev) { ev.stopPropagation(); openBig(c); });
+      return bb;
+    }
     if (!c.confirmed) {
       if (!S.data.canConfirm) { return el('span', 'muted small', '押せません'); }
       var b = el('button', 'btn btn-primary' + (small ? ' btn-sm' : ''), c.label);
@@ -972,7 +1035,7 @@
     body.appendChild(section('納品', [['納品日', md(c.deliveryDate)], ['時間帯', c.timeSlot], ['受け取り', c.fulfillment]]));
     var tel = String(c.phone || '').replace(/[^0-9+]/g, '');
     body.appendChild(section('お客さま', [['会社', c.company], ['部署', c.department], ['ご担当者', personText(c)],
-      ['電話', c.phone, tel ? 'tel:' + tel : '']]));
+      ['電話', c.phone, tel ? 'tel:' + tel : ''], ['メール', c.bigReply && c.bigReply.state === '作れない' ? c.email : '']]));
     body.appendChild(section('お届け先', [['住所', c.address]]));
     var items = linesOf(c).map(function (l) { return lineName(l) + (l.qty != null ? ' × ' + l.qty : '') + (l.subtotal != null ? '　' + yen(l.subtotal) : ''); }).join('\n');
     var order = section('注文内容', [['明細', items], ['食数', c.qty + '食'], ['合計', yen(c.total) + (c.billing ? '（' + c.billing + '）' : '')]]);
@@ -982,10 +1045,7 @@
         yen(b.total) + (b.items ? ' ／ ' + b.items : '')));
     }
     if (c.want === KIND.CANCELLED) { order.appendChild(el('div', 'box box-gray', 'この注文はキャンセルになりました。')); }
-    if (c.big && c.want !== KIND.CANCELLED) {
-      var bigBox = el('div', 'box box-warning', '大口（' + c.qty + '食）の注文です。「作れる／作れない」の返事をここから送れるようにする予定です（準備中）。いまは運営（matchimo）から電話で確かめます。');
-      order.appendChild(bigBox);
-    }
+    if (c.big && c.want !== KIND.CANCELLED) { order.appendChild(bigBoxOf(c)); }
     body.appendChild(order);
     if (c.deliveryNote || c.note) {
       body.appendChild(section('連絡事項', [['配達の特記', c.deliveryNote], ['備考', c.note]]));
@@ -1011,6 +1071,31 @@
     close.addEventListener('click', closeDetail);
     foot.appendChild(close);
     if (!c.confirmed || c.delivered || canDeliver(c)) { foot.appendChild(actionFor(c, false)); }
+  }
+
+  /** 🆕 v7：詳細の大口の説明（返事待ち・返事ずみ・前のやり方） */
+  function bigBoxOf(c) {
+    var b = S.data.big || {};
+    if (c.bigReply) {
+      var r = c.bigReply;
+      var box = el('div', 'box ' + (r.state === '作れない' ? 'box-gray' : 'box-success'));
+      box.appendChild(el('div', 'strong', '大口の返事：' + r.state + '（' + r.at + (r.by ? '・' + r.by : '') + '）'));
+      if (r.state === '作れない') {
+        box.appendChild(el('div', '', 'お客さまへ、お店からご連絡ください（電話・メールは上の「お客さま」）。注文の変更・キャンセルが決まったら、運営へお知らせください。'));
+      } else {
+        box.appendChild(el('div', '', (r.state === '自動で確定' ? '返事の期限までに返事がなかったため、決め事により「作れる」として確定しました。お店の責任でお作りください。' : 'お店の責任でお作りください。') +
+          (r.mail ? '（お客さまへのメール：' + r.mail + '）' : '')));
+      }
+      return box;
+    }
+    if (c.bigActive && bigReady()) {
+      var w = el('div', 'box box-warning');
+      w.appendChild(el('div', 'strong', '大口（' + c.qty + '食）のご注文です。返事の期限：' + c.bigDue + '（注文から' + (b.hours || 24) + '時間）'));
+      w.appendChild(el('div', '', '【大口の返事】で「作れる」か「作れない」を押してください。返事がないと「作れる」として確定し、お客さまへ確定のメールが届きます（お店の責任でお作りください）。'));
+      if (c.bigLate) { w.appendChild(el('div', 'strong', '🔴 大口の締切（納品日の' + b.leadDays + '日前）を過ぎて届いた注文です。作れないときは「作れない」を押してください。')); }
+      return w;
+    }
+    return el('div', 'box box-warning', '大口（' + c.qty + '食）の注文です。お受けできるかどうか、運営（matchimo）から確認のご連絡をします。内容を見たら【' + c.label + '】を押してください。');
   }
 
   function section(title, rows) {
@@ -1094,6 +1179,53 @@
     });
   }
 
+  // ---------------------------------------------------------------------------
+  // 🆕 v7：大口の返事のダイアログ（作れる／作れない・1回だけ）── 窓口 v9 の bigReply
+  // ---------------------------------------------------------------------------
+
+  function openBig(c) {
+    if (S.sending) { return; }
+    S.bigCard = c;
+    var b = S.data.big || {};
+    $('bmodalTitle').textContent = '大口のご注文（' + c.qty + '食）に返事します';
+    var body = clear($('bmodalBody'));
+    body.appendChild(summaryDl(c));
+    body.appendChild(el('p', 'strong', '返事の期限：' + c.bigDue + '（注文から' + (b.hours || 24) + '時間・過ぎると「作れる」として確定）'));
+    if (c.bigLate) { body.appendChild(el('div', 'box box-danger', '🔴 大口の締切（納品日の' + b.leadDays + '日前）を過ぎて届いた注文です。')); }
+    $('bmodalNgText').textContent = '確認ずみにして、運営へ知らせます。お客さまへは、お店からご連絡ください（電話 ' + (c.phone || 'なし') + '）。注文の変更・キャンセルが決まったら、運営へお知らせください。';
+    $('bwhoName').value = S.name;
+    $('bmodalOk').disabled = false;
+    $('bmodalNg').disabled = false;
+    $('bmodal').hidden = false;
+    setTimeout(function () { try { $('bmodalCancel').focus(); } catch (e) { /* 何もしない */ } }, 0);
+  }
+  function closeBig() { $('bmodal').hidden = true; S.bigCard = null; }
+  function doBig(answer) {
+    var c = S.bigCard;
+    if (!c || S.sending) { return; }
+    S.name = $('bwhoName').value.trim().slice(0, 20);
+    remember(STORE.name, S.name);
+    S.sending = true;
+    $('bmodalOk').disabled = true;
+    $('bmodalNg').disabled = true;
+    closeBig();
+    busy(true);
+    callApi({ action: 'bigReply', token: S.token, storeId: S.data.store.id, orderId: c.orderId, orderNumber: c.orderNumber, answer: answer, name: S.name }).then(function (res) {
+      S.sending = false;
+      busy(false);
+      render(res, true);
+    }).catch(function () {
+      S.sending = false;
+      busy(false);
+      showNotice('返事を記録できたか分かりません。【更新】を押して、大口の返事が入っているか確かめてください。', true);
+      renderRows();
+    });
+  }
+  $('bmodalOk').addEventListener('click', function () { doBig('ok'); });
+  $('bmodalNg').addEventListener('click', function () { doBig('ng'); });
+  $('bmodalCancel').addEventListener('click', closeBig);
+  $('bmodal').querySelector('.modal-backdrop').addEventListener('click', closeBig);
+
   $('modalOk').addEventListener('click', doConfirm);
   $('modalCancel').addEventListener('click', closeConfirm);
   $('modal').querySelector('.modal-backdrop').addEventListener('click', closeConfirm);
@@ -1157,7 +1289,7 @@
   Array.prototype.forEach.call(document.querySelectorAll('[data-close="drawer"]'), function (b) { b.addEventListener('click', closeDetail); });
   document.addEventListener('keydown', function (ev) {
     if (ev.key !== 'Escape') { return; }
-    if (!$('modal').hidden) { closeConfirm(); } else if (!$('dmodal').hidden) { closeDeliver(); } else if (!$('pmodal').hidden) { closePmodal(); } else if (!$('jmodal').hidden) { closeJudge(); }
+    if (!$('modal').hidden) { closeConfirm(); } else if (!$('bmodal').hidden) { closeBig(); } else if (!$('dmodal').hidden) { closeDeliver(); } else if (!$('pmodal').hidden) { closePmodal(); } else if (!$('jmodal').hidden) { closeJudge(); }
     else if (!$('drawer').hidden) { closeDetail(); } else { closeNav(); }
   });
 
@@ -1606,7 +1738,195 @@
   function renderSettings() {
     $('setName').value = S.name;
     $('setEmail').value = S.data.email || '';
+    renderContacts();
   }
+
+  // ---- 🆕 v7：通知先（ログインできるメール・受注メールの宛先）の申請 → 運営が承認 → マスタの H列＋招待 ----
+  function contactsOf() { return (S.data && Array.isArray(S.data.contacts)) ? S.data.contacts : null; }
+  function parseEmails(text) {
+    var out = [];
+    String(text == null ? '' : text).split(/[\s,;、；，]+/).forEach(function (x) {
+      var e = x.replace(/[！-～]/g, function (ch) { return String.fromCharCode(ch.charCodeAt(0) - 0xFEE0); }).trim().toLowerCase();
+      if (e && out.indexOf(e) === -1) { out.push(e); }
+    });
+    return out;
+  }
+  function emailOk(e) { return /^[a-z0-9][a-z0-9._%+\-]{0,63}@[a-z0-9\-]+(\.[a-z0-9\-]+)+$/.test(e) && e.length <= 254; }
+  function renderContacts() {
+    var list = contactsOf();
+    $('ctWrap').hidden = !list;
+    $('setEmailHint').textContent = list ? 'ログインに使っているメールアドレスです。通知先を足す・外すのは、下の「通知先」から（運営の承認のあと切り替わります）。' : '変更は運営（matchimo）へ。';
+    if (!list) { return; }
+    $('ctMax').textContent = String(S.data.contactMax || 10);
+    var cur = clear($('ctCurrent'));
+    list.forEach(function (e) { cur.appendChild(el('span', 'chip', e)); });
+    if (!list.length) { cur.appendChild(el('span', 'muted small', '（ありません）')); }
+    var r = S.data.contactRequest;
+    var pending = !!(r && r.state === REQ_STATE.PENDING);
+    var stBox = $('ctStatus');
+    stBox.hidden = !r || r.state === REQ_STATE.WITHDRAWN;
+    if (r && !stBox.hidden) {
+      var shown = String((r.after || {}).emails || '').split('\n').filter(Boolean).join('、');
+      stBox.className = 'box ' + (pending ? 'box-warning' : (r.state === REQ_STATE.REJECTED ? 'box-danger' : 'box-success'));
+      stBox.textContent = pending ? '申請中（' + r.at + '）：' + shown + ' ── 運営の承認を待っています。' :
+        (r.state === REQ_STATE.REJECTED ? '差し戻し（' + r.judgedAt + '）：' + r.reason + '　直して、もう一度申請してください。' : '承認ずみ（' + r.judgedAt + '）：いまの通知先に入っています。');
+    }
+    if (!S.ctDirty) {
+      $('ctList').value = (pending || (r && r.state === REQ_STATE.REJECTED)) ? String((r.after || {}).emails || '') : list.join('\n');
+    }
+    $('ctList').disabled = pending;
+    $('ctSubmit').hidden = pending;
+    $('ctWithdraw').hidden = !pending;
+    contactHint();
+    renderCtResult();
+  }
+  function contactHint() {
+    var emails = parseEmails($('ctList').value);
+    var me = String((S.data && S.data.email) || '').toLowerCase();
+    var bad = emails.filter(function (e) { return !emailOk(e); });
+    var msg = '';
+    if (bad.length) { msg = '🔴 メールアドレスの形が読めません：' + bad.join('、'); }
+    else if (me && !(S.data && S.data.ops) && emails.length && emails.indexOf(me) === -1) { msg = '🔴 あなたのメール（' + me + '・ログイン中）を外すと、承認のあと この画面に入れなくなります。'; }
+    $('ctHint').textContent = msg || ('いま ' + emails.length + ' 件。足したメールには、承認のあと招待のメールが届きます。');
+  }
+  function renderCtResult() {
+    var r = S.ctResult;
+    var node = $('ctResult');
+    node.hidden = !(r && r.text);
+    node.className = 'inline-result' + (r ? ' is-' + r.kind : '');
+    node.textContent = r ? (r.kind === 'ok' ? '✓ ' : (r.kind === 'ng' ? '⚠ ' : '')) + r.text : '';
+  }
+  $('ctList').addEventListener('input', function () { S.ctDirty = true; S.ctResult = null; renderCtResult(); contactHint(); });
+  $('ctSubmit').addEventListener('click', function () {
+    if (S.sending) { return; }
+    var emails = parseEmails($('ctList').value);
+    var max = S.data.contactMax || 10;
+    var problem = !emails.length ? '通知先は1つ以上にしてください（全部は外せません）。' : (emails.length > max ? '通知先は ' + max + ' 件までです。' :
+      (emails.some(function (e) { return !emailOk(e); }) ? 'メールアドレスの形が読めないものがあります（赤い一言を見てください）。' : ''));
+    if (problem) { S.ctResult = { text: problem, kind: 'ng' }; return renderCtResult(); }
+    S.sending = true;
+    busy(true);
+    callApi({ action: 'submitRequest', token: S.token, storeId: S.data.store.id, kind: 'contact', fields: { emails: emails.join('\n') }, name: S.name }).then(function (res) {
+      S.sending = false;
+      busy(false);
+      if (res && res.error && res.error.code !== 'LOGIN') { S.ctResult = { text: res.error.message, kind: 'ng' }; return renderCtResult(); }
+      if (res && !res.error) { S.ctDirty = false; S.ctResult = resultOf(res); }
+      render(res, true);
+    }, function () {
+      S.sending = false;
+      busy(false);
+      S.ctResult = { text: '申請できたか分かりません。【更新】を押して確かめてください。', kind: 'ng' };
+      renderCtResult();
+    });
+  });
+  $('ctWithdraw').addEventListener('click', function () {
+    var r = S.data && S.data.contactRequest;
+    if (!r || S.sending) { return; }
+    S.sending = true;
+    busy(true);
+    callApi({ action: 'withdrawRequest', token: S.token, storeId: S.data.store.id, requestId: r.id, name: S.name }).then(function (res) {
+      S.sending = false;
+      busy(false);
+      if (res && !res.error) { S.ctDirty = false; S.ctResult = null; }
+      render(res, true);
+    }, function () {
+      S.sending = false;
+      busy(false);
+      showNotice('取り下げられたか分かりません。【更新】を押して確かめてください。', true);
+    });
+  });
+
+  // ---- 🆕 v7：お知らせ（運営 → お店・画面だけ）。新着＝この端末で最後に見た時刻より新しいもの ----
+  function newsOf() { return (S.data && Array.isArray(S.data.news)) ? S.data.news : []; }
+  function newsKey() { return 'matchimo.admin.newsSeen.' + ((S.data && S.data.store && S.data.store.id) || ''); }
+  function newsSeenAt() { var v = Number(recall(newsKey())); return v > 0 ? v : 0; }
+  function isUnreadNews(n) { return (Number(n.atMs) || 0) > newsSeenAt(); }
+  function unreadNews() { return newsOf().filter(isUnreadNews).length; }
+  function markNewsSeen() {
+    var max = 0;
+    newsOf().forEach(function (n) { if (Number(n.atMs) > max) { max = Number(n.atMs); } });
+    if (max > newsSeenAt()) { remember(newsKey(), String(max)); }
+  }
+  function renderNews() {
+    var news = newsOf();
+    var seen = newsSeenAt();
+    var list = clear($('newsList'));
+    $('newsEmpty').hidden = news.length > 0;
+    news.forEach(function (n) {
+      var unread = (Number(n.atMs) || 0) > seen;
+      var item = el('article', 'news-item' + (unread ? ' is-unread' : ''));
+      var head = el('div', 'news-head');
+      head.appendChild(el('span', '', n.at));
+      head.appendChild(el('span', 'badge ' + (n.to === '全店' ? 'badge-gray' : 'badge-primary'), n.to === '全店' ? '全店' : 'このお店あて'));
+      if (unread) { head.appendChild(el('span', 'badge badge-danger', '新着')); }
+      item.appendChild(head);
+      item.appendChild(el('h3', 'news-title', n.title));
+      if (n.body) { item.appendChild(el('p', 'news-body', n.body)); }
+      list.appendChild(item);
+    });
+    if (unreadNews() > 0) { markNewsSeen(); renderNav(); } // 開いたら新着の数を消す（色は次に開くまで残す）
+    var ops = !!(S.data && S.data.ops && Array.isArray(S.data.newsAll));
+    $('newsOps').hidden = !ops;
+    $('newsOpsWrap').hidden = !ops;
+    if (!ops) { return; }
+    var sel = $('newsTo');
+    var keep = sel.value;
+    clear(sel);
+    var o1 = el('option', '', '全店');
+    o1.value = 'all';
+    sel.appendChild(o1);
+    var o2 = el('option', '', 'いまのお店だけ（' + S.data.store.name + '）');
+    o2.value = S.data.store.id;
+    sel.appendChild(o2);
+    sel.value = keep === S.data.store.id ? keep : 'all';
+    var tb = clear($('newsOpsRows'));
+    S.data.newsAll.forEach(function (n) {
+      var tr = el('tr', n.state === '取り下げ' ? 'is-cancel-row' : '');
+      tr.appendChild(el('td', '', n.at));
+      tr.appendChild(el('td', '', n.toName));
+      tr.appendChild(el('td', 'strong', n.title));
+      var tdS = el('td');
+      tdS.appendChild(el('span', 'badge ' + (n.state === '取り下げ' ? 'badge-gray' : 'badge-success'), n.state));
+      tr.appendChild(tdS);
+      var tdA = el('td', 'act');
+      if (n.state !== '取り下げ') {
+        var armed = S.newsArm === n.id;
+        var w = el('button', 'btn ' + (armed ? 'btn-danger' : 'btn-secondary') + ' btn-sm', armed ? '本当に取り下げる' : '取り下げる');
+        w.type = 'button';
+        w.addEventListener('click', function () {
+          if (S.newsArm !== n.id) { S.newsArm = n.id; return renderNews(); } // 2回押して取り下げる（押しまちがい対策）
+          S.newsArm = '';
+          newsCall({ action: 'withdrawNews', token: S.token, storeId: S.data.store.id, id: n.id, name: S.name });
+        });
+        tdA.appendChild(w);
+      }
+      tr.appendChild(tdA);
+      tb.appendChild(tr);
+    });
+    $('newsOpsEmpty').hidden = S.data.newsAll.length > 0;
+  }
+  function newsCall(body, onOk) {
+    if (S.sending) { return; }
+    S.sending = true;
+    busy(true);
+    callApi(body).then(function (res) {
+      S.sending = false;
+      busy(false);
+      if (res && res.error && res.error.code !== 'LOGIN' && S.data) { return showNotice(res.error.message, true); }
+      if (res && !res.error && onOk) { onOk(); }
+      render(res, true);
+    }, function () {
+      S.sending = false;
+      busy(false);
+      showNotice('うまくいったか分かりません。【更新】を押して確かめてください。', true);
+    });
+  }
+  $('newsPost').addEventListener('click', function () {
+    var title = $('newsTitle').value.trim();
+    if (!title) { return showNotice('お知らせの見出しを入れてください。', true); }
+    newsCall({ action: 'postNews', token: S.token, storeId: S.data.store.id, to: $('newsTo').value, title: title, body: $('newsBody').value.trim(), name: S.name },
+      function () { $('newsTitle').value = ''; $('newsBody').value = ''; });
+  });
   $('setSave').addEventListener('click', function () {
     S.name = $('setName').value.trim().slice(0, 20);
     remember(STORE.name, S.name);
@@ -1623,7 +1943,7 @@
   // 営業の設定・お店の情報（事実の欄）── 承認なしで保存し、運営にメール（2026-10-04・窓口 saveSettings）
   // ---------------------------------------------------------------------------
 
-  var HOURS_FIELDS = { stop: 'hrStop', stop_until: 'hrStopUntil', stop_note: 'hrStopNote', lead_days: 'hrLead', cutoff_time: 'hrCutoff', areas: 'hrArea', min_lot: 'hrMinLot' };
+  var HOURS_FIELDS = { stop: 'hrStop', stop_until: 'hrStopUntil', stop_note: 'hrStopNote', lead_days: 'hrLead', cutoff_time: 'hrCutoff', large_lead_days: 'hrLargeLead', areas: 'hrArea', min_lot: 'hrMinLot' };
   var STORE_FIELDS = { address: 'stAddress', tel: 'stTel', map_url: 'stMap', bank: 'stBank' };
   var DIRTY_TEXT = '保存していない変更があります';
 
@@ -1663,6 +1983,13 @@
     }
     renderHolidayChips();
     $('hrUpdated').textContent = S.hoursDirty ? DIRTY_TEXT : updatedText(st);
+    // 🆕 v7：大口の締切（窓口 v9 から）。空なら ふだんの締切＋2日
+    var big = S.data.big;
+    $('hrLargeLeadField').hidden = !big;
+    if (big) {
+      $('hrLargeLeadHint').textContent = '大口（' + bigQty() + '食以上）の注文の締切。' + (st.large_lead_days ? 'いまは 納品日の' + big.leadDays + '日前' : '空なら ふだんの締切＋' + big.extra + '日（いまは 納品日の' + big.leadDays + '日前）') +
+        (st.cutoff_time ? 'の ' + st.cutoff_time + ' まで' : 'まで') + '。大口の注文には、届いてから' + big.hours + '時間以内に【作れる】【作れない】で返事します（返事がないと「作れる」として確定）。';
+    }
   }
   function markHoursDirty() { S.hoursDirty = true; $('hrUpdated').textContent = DIRTY_TEXT; }
   function renderHolidayChips() {
@@ -1708,6 +2035,7 @@
     var cbs = $('hoursWeek').querySelectorAll('input');
     for (var i = 0; i < cbs.length; i++) { if (cbs[i].checked) { out.closed_weekdays.push(cbs[i].value); } }
     Object.keys(HOURS_FIELDS).forEach(function (k) { out[k] = $(HOURS_FIELDS[k]).value.trim(); });
+    if ($('hrLargeLeadField').hidden) { delete out.large_lead_days; } // 窓口が v8 以前（大口の締切を知らない）
     return out;
   }
   $('hrSave').addEventListener('click', function () { saveSettings('hours', hoursInput()); });
@@ -1756,7 +2084,7 @@
   });
   // 開いたままでも新しい注文が出るように、5分ごとに読み直す（画面が見えていて、ダイアログを開いていないときだけ）
   setInterval(function () {
-    if (document.visibilityState === 'visible' && $('modal').hidden && $('dmodal').hidden && $('pmodal').hidden && $('jmodal').hidden && !S.sending && S.data && S.token) { load(S.storeId, true); }
+    if (document.visibilityState === 'visible' && $('modal').hidden && $('bmodal').hidden && $('dmodal').hidden && $('pmodal').hidden && $('jmodal').hidden && !S.sending && S.data && S.token) { load(S.storeId, true); }
   }, 5 * 60 * 1000);
 
   // ---------------------------------------------------------------------------
@@ -2022,7 +2350,11 @@
     var badges = clear($('drawerBadges'));
     badges.appendChild(reqBadge(r));
     var body = clear($('drawerBody'));
-    body.appendChild(section('申請', [['申請日時', r.at], ['申請した人', r.by], ['ひとこと', r.note], ['判断', r.judgedAt ? r.judgedAt + (r.judgedBy ? '（' + r.judgedBy + '）' : '') : ''], ['理由', r.reason], ['Shopify反映', r.synced]]));
+    body.appendChild(section('申請', [['申請日時', r.at], ['申請した人', r.by], ['ひとこと', r.note], ['判断', r.judgedAt ? r.judgedAt + (r.judgedBy ? '（' + r.judgedBy + '）' : '') : ''], ['理由', r.reason],
+      [r.kind === '通知先' ? 'マスタに反映' : 'Shopify反映', r.synced]]));
+    if (r.kind === '通知先' && r.state === REQ_STATE.PENDING) {
+      body.appendChild(el('div', 'box box-warning', '承認すると、マスタの通知先（H列）がすぐ書き換わります。足したメールには招待が届き、外したメールは その場でログインできなくなります（受注のメールも届かなくなります）。'));
+    }
     var sec = el('div', 'section');
     sec.appendChild(el('h3', '', '変更前 → 変更後（変わった所は色つき）'));
     var t = el('table', 'diff');
@@ -2033,7 +2365,7 @@
     t.appendChild(thead);
     var tbody = el('tbody');
     var rerender = function () { if (S.reqOpen === r) { renderRequestDetail(r); } };
-    var labels = r.kind === '商品' ? PRODUCT_LABELS : STORY_LABELS;
+    var labels = r.kind === '商品' ? PRODUCT_LABELS : (r.kind === '通知先' ? CONTACT_LABELS : STORY_LABELS);
     Object.keys(labels).forEach(function (k) {
       var b = diffText(k, (r.before || {})[k]);
       var av = diffText(k, (r.after || {})[k]);
@@ -2083,8 +2415,9 @@
     $('jmodalTitle').textContent = decision === 'approve' ? 'この申請を承認しますか？' : 'この申請を差し戻しますか？';
     var body = clear($('jmodalBody'));
     body.appendChild(el('p', 'strong', r.storeName + '：' + r.kind + '（' + r.at + '・' + r.by + '）'));
-    body.appendChild(el('p', 'muted small', decision === 'approve' ?
-      '承認すると、お店の承認済みの内容になり、お店にメールが届きます。受注サイトへの反映は運営の手です（写し終えたら、この申請の【受注サイトに反映した】を押します）。' :
+    body.appendChild(el('p', 'muted small', decision === 'approve' ? (r.kind === '通知先' ?
+      '承認すると、マスタの通知先（H列）がすぐ書き換わり、足したメールに招待が届きます。外したメールは その場でログインできなくなります（お店の全員にメールで知らせます）。' :
+      '承認すると、お店の承認済みの内容になり、お店にメールが届きます。受注サイトへの反映は運営の手です（写し終えたら、この申請の【受注サイトに反映した】を押します）。') :
       '理由はお店に届きます。お店は直して、もう一度申請できます。'));
     $('jreasonField').hidden = decision !== 'reject';
     $('jreason').value = '';
@@ -2154,6 +2487,7 @@
   var PRODUCT_UPLOAD_MAX = 20 * 1024 * 1024;
   var PRODUCT_SEND_MAX = 16 * 1024 * 1024; // 1回の申請の新しい写真の合計（窓口 v8 と同じ）
   var OPTION_KIND_LABEL = { check: 'あり／なし', choice: '1つ選ぶ', number: '数を入れる' };
+  var CONTACT_LABELS = { emails: '通知先（ログインできるメール）' };
   var OPTION_PER_LABEL = { meal: '1食ごと', order: '1注文ごと', unit: '1つごと' };
 
   function productsOf() { return (S.data && Array.isArray(S.data.products)) ? S.data.products : []; }
@@ -2767,6 +3101,7 @@
   var DEMO_EMAIL = 'demo@example.com';
   var demoBooks = null;
   var demoRequests = null;
+  var demoNews = null;
   var demoPhotos = {};
   var DEMO_SVG = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="200"><rect width="800" height="200" fill="#dbe4ee"/><text x="400" y="110" font-size="28" text-anchor="middle" fill="#3b4a5c" font-family="sans-serif">見本の写真（1600×400）</text></svg>');
   var DEMO_SVG_P = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="860" height="645"><rect width="860" height="645" fill="#e9e2d6"/><text x="430" y="335" font-size="34" text-anchor="middle" fill="#5c4a3a" font-family="sans-serif">見本の商品写真（1720×1290）</text></svg>');
@@ -2914,6 +3249,7 @@
       big: qty >= 200, test: kind === KIND.TEST, before: null
     };
     if (o.confirmed) { c.confirmed = { at: jstDate(o.day - 2).replace(/-/g, '/') + ' 09:30', by: '山田（' + DEMO_EMAIL + '）', source: 'sheet' }; }
+    if (o.bigReply) { c.bigReply = o.bigReply; }
     if (o.delivered) { c.delivered = { at: date.replace(/-/g, '/') + ' 12:05', by: '山田（' + DEMO_EMAIL + '）' }; }
     if (o.before) {
       var bl = demoLines(o.before);
@@ -2939,7 +3275,7 @@
     return counts;
   }
   function demoSettings(cw, lead, cutoff, areas, minlot) {
-    return { closed_weekdays: cw, holidays: '', stop: '', stop_note: '', stop_until: '', lead_days: lead, cutoff_time: cutoff, areas: areas, min_lot: minlot,
+    return { closed_weekdays: cw, holidays: '', stop: '', stop_note: '', stop_until: '', lead_days: lead, cutoff_time: cutoff, large_lead_days: '', areas: areas, min_lot: minlot,
       address: '', tel: '', map_url: '', bank: '', updatedAt: '', updatedBy: '',
       intro: '', point1_title: '', point1_body: '', point2_title: '', point2_body: '', point3_title: '', point3_body: '', photo_id: '', photo_name: '' };
   }
@@ -2959,13 +3295,15 @@
         { number: '1104', day: -1, company: '株式会社見本商事', dept: '営業部', orderer: '見本 太郎', lines: [ros(12)], confirmed: true, delivered: true },
         { number: '1105', day: 0, slot: '11:00-12:00', company: '株式会社見本商事', dept: '総務部', orderer: '見本 太郎', kana: 'みほん たろう', lines: [bento(40)], confirmed: true,
           deliveryNote: '正面玄関で受付にお渡しください' },
-        { number: '1106', day: 0, slot: '12:00-13:00', company: '見本大学 学生課', orderer: '見本 三郎', lines: [toku(250)], note: '箸を多めにお願いします' },
+        { number: '1106', day: 6, slot: '12:00-13:00', company: '見本大学 学生課', orderer: '見本 三郎', lines: [toku(250)], note: '箸を多めにお願いします' },
         { number: '1107', day: 0, slot: '13:00-14:00', kind: KIND.TEST, company: 'テスト商事', orderer: '試験 太郎', lines: [bento(5)] },
         { number: '1108', day: 1, slot: '11:30-12:30', kind: KIND.CHANGED, company: '見本クリニック', orderer: '見本 四郎', lines: [shoka(25)], before: [shoka(20)] },
         { number: '1109', day: 1, slot: '12:00-13:00', company: '見本設計株式会社', orderer: '見本 五郎', lines: [bento(10)], confirmed: true },
         { number: '1110', day: 2, company: '見本建設株式会社', orderer: '見本 六郎', lines: [ros(30)], cancelled: true },
         { number: '1111', day: 2, slot: '11:00-12:00', company: '見本保険株式会社', dept: '企画部', orderer: '見本 七子', lines: [toku(30), bento(10)] },
-        { number: '1112', day: 7, company: '株式会社見本商事', dept: '総務部', orderer: '見本 太郎', lines: [bento(60)] }
+        { number: '1112', day: 7, company: '株式会社見本商事', dept: '総務部', orderer: '見本 太郎', lines: [bento(60)] },
+        { number: '1113', day: 9, slot: '11:00-12:00', company: '見本市 実行委員会', orderer: '見本 十一郎', lines: [bento(300)], confirmed: true,
+          bigReply: { state: '作れる', at: jstDate(-1).replace(/-/g, '/') + ' 09:40', by: '山田（' + DEMO_EMAIL + '）', mail: '送った ' + jstDate(-1).replace(/-/g, '/') + ' 09:40' } }
       ] },
       { id: 'DEMO_002', name: '見本オードブル（デモ）', address: '〒140-0000 東京都品川区見本4-5-6', phone: '03-0000-0001', bank: '見本銀行 本店 普通 0000001 ミホンオードブル（カ', settings: demoSettings('0,1', '3', '12:00', '品川区・大田区', '5'), cards: [
         { number: '2101', day: -8, company: '見本不動産株式会社', orderer: '見本 八郎', lines: [['見本のオードブル A', 3, 6000]], confirmed: true, delivered: true },
@@ -2979,6 +3317,8 @@
       b.settings.updatedAt = jstNow(); b.settings.updatedBy = '見本 太郎（' + DEMO_EMAIL + '）';
     });
     demoBooks[0].settings.holidays = jstDate(12);
+    demoBooks[0].contacts = [DEMO_EMAIL, 'kitchen@example.com'];
+    demoBooks[1].contacts = [DEMO_EMAIL];
     // 見本の商品：見本弁当は 反映ずみ1・停止中（承認ずみ・未反映）1・申請中の追加1。見本オードブルは 1
     demoPhotos.DEMOPHOTO_P1 = DEMO_SVG_P;
     demoPhotos.DEMOPHOTO_P2 = demoSvgP(2, '#dfe8d8', '#3d5232');
@@ -3015,6 +3355,101 @@
         judgedAt: jstNow(), judgedBy: '運営 太郎（' + DEMO_EMAIL + '）', reason: '', synced: '', note: '' }
     ];
   }
+  function demoInitNews() {
+    if (demoNews) { return; }
+    var nowMs = Date.now();
+    var by = '運営 太郎（' + DEMO_EMAIL + '）';
+    demoNews = [
+      { id: 'NDEMO-3', atMs: nowMs - 2 * 60 * 60 * 1000, to: '全店', title: '大口のご注文の返事のしかたが新しくなりました', by: by, state: '公開',
+        body: '200食以上の大口のご注文には、「注文」の【大口の返事】で「作れる」か「作れない」を押してください。\n返事は注文から24時間以内です。返事がないと「作れる」として確定し、お客さまへ確定のメールが届きます（お店の責任でお作りください）。' },
+      { id: 'NDEMO-2', atMs: nowMs - 3 * 24 * 60 * 60 * 1000, to: 'DEMO_001', title: '商品の写真の差し替えのお願い', by: by, state: '公開',
+        body: '見本の松花堂弁当の写真を、明るいものに差し替えてください（「商品」の【直す】から申請できます）。' },
+      { id: 'NDEMO-1', atMs: nowMs - 10 * 24 * 60 * 60 * 1000, to: '全店', title: '（取り下げの見本）古いお知らせ', by: by, state: '取り下げ', body: '' }
+    ];
+    demoNews.forEach(function (n) { n.at = jstStamp(n.atMs); });
+  }
+  function demoNewsFor(storeId) {
+    demoInitNews();
+    return demoNews.filter(function (n) { return n.state === '公開' && (n.to === '全店' || n.to === storeId); })
+      .sort(function (a, b) { return b.atMs - a.atMs; }).slice(0, 20).map(function (n) { return { id: n.id, at: n.at, atMs: n.atMs, title: n.title, body: n.body, to: n.to }; });
+  }
+  function demoNewsAll() {
+    demoInitNews();
+    return demoNews.slice().sort(function (a, b) { return b.atMs - a.atMs; }).map(function (n) {
+      return { id: n.id, at: n.at, title: n.title, body: n.body, to: n.to, toName: n.to === '全店' ? '全店' : demoBook(n.to).name, by: n.by, state: n.state };
+    });
+  }
+  function demoNewsAction(body) {
+    demoInitNews();
+    var sid = demoBook(body.storeId).id;
+    if (body.action === 'postNews') {
+      var title = String(body.title || '').replace(/\s*\n\s*/g, ' ').trim().slice(0, 60);
+      if (!title) { return { ok: false, error: { code: 'BAD_INPUT', message: 'お知らせの見出しを入れてください。' } }; }
+      var to = (body.to === 'all' || !body.to) ? '全店' : String(body.to);
+      var ms = Date.now();
+      demoNews.unshift({ id: 'NDEMO-' + (demoNews.length + 1), atMs: ms, at: jstStamp(ms), to: to, title: title, body: String(body.body || '').trim().slice(0, 1000),
+        by: (body.name ? body.name + '（' + DEMO_EMAIL + '）' : DEMO_EMAIL), state: '公開' });
+      return demoDashboard(sid, 'お知らせを出しました（宛先：' + (to === '全店' ? '全店' : demoBook(to).name) + '）。見本の中だけです。');
+    }
+    var hit = null;
+    demoNews.forEach(function (n) { if (n.id === body.id) { hit = n; } });
+    if (!hit) { return { ok: false, error: { code: 'NOT_FOUND', message: 'そのお知らせが見つかりません。' } }; }
+    if (hit.state === '取り下げ') { return demoDashboard(sid, 'そのお知らせは、もう取り下げてあります。'); }
+    hit.state = '取り下げ';
+    return demoDashboard(sid, 'お知らせ「' + hit.title + '」を取り下げました（見本の中だけ）。');
+  }
+  /** 見本の大口：窓口 v9 と同じ印（返事の期限は見本の時刻） */
+  function demoBigInfo(b) {
+    var st = b.settings || {};
+    var normal = String(st.lead_days || '') !== '' ? Number(st.lead_days) : 2;
+    var lead = String(st.large_lead_days || '') !== '' ? Math.max(Number(st.large_lead_days), normal) : normal + 2;
+    return { ready: true, hours: 24, remindHours: 18, leadDays: lead, extra: 2, themeLeadDays: 2, qty: 200 };
+  }
+  function demoBigMark(c) {
+    if (!c.big) { return; }
+    if (!c.demoDue) { c.demoDue = jstStamp(Date.now() + (c.orderNumber === '1106' ? 20 : 30) * 60 * 60 * 1000); }
+    c.bigNew = true;
+    c.bigReply = c.bigReply || null;
+    c.bigActive = !c.bigReply && c.state === '最新';
+    c.bigDue = c.demoDue;
+    c.bigLate = false;
+  }
+  function demoBigReply(body) {
+    var bb = demoBook(body.storeId);
+    var bc = null;
+    bb.cards.forEach(function (c) { if (c.orderNumber === String(body.orderNumber) && c.state === '最新') { bc = c; } });
+    if (!bc || !bc.big) { return demoDashboard(bb.id, 'その注文は大口ではないか、キャンセルになりました。最新の状態に更新しました。'); }
+    if (bc.bigReply) { return demoDashboard(bb.id, 'この大口には、もう返事があります（' + bc.bigReply.state + '・' + bc.bigReply.at + '）。'); }
+    if (body.answer !== 'ok' && body.answer !== 'ng') { return { ok: false, error: { code: 'BAD_REQUEST', message: '読めない依頼でした。' } }; }
+    var who = (body.name ? body.name + '（' + DEMO_EMAIL + '）' : DEMO_EMAIL);
+    bc.confirmed = { at: jstNow(), by: who, source: 'sheet' };
+    if (body.answer === 'ok') {
+      bc.bigReply = { state: '作れる', at: jstNow(), by: who, mail: '送った ' + jstNow() + '（見本）' };
+      return demoDashboard(bb.id, '注文番号 ' + bc.orderNumber + ' を「作れる」にしました。お客さまへ確定のメールを送りました（見本の中だけ。本物ではお客さまにメールが届き、返信はお店のメールに届きます）。');
+    }
+    bc.bigReply = { state: '作れない', at: jstNow(), by: who, mail: '送っていない（お店から連絡）' };
+    return demoDashboard(bb.id, '注文番号 ' + bc.orderNumber + ' を「作れない」にしました。お客さまへご連絡ください（電話 ' + (bc.phone || '（なし）') + '）。見本の中だけです。');
+  }
+  function demoLatestContact(storeId) {
+    var hit = null;
+    demoRequests.forEach(function (r) { if (r.storeId === storeId && r.kind === '通知先' && !hit) { hit = r; } });
+    return hit;
+  }
+  function demoSubmitContact(body) {
+    var sb = demoBook(body.storeId);
+    var cur = demoLatestContact(sb.id);
+    if (cur && cur.state === REQ_STATE.PENDING) { return demoDashboard(sb.id, '通知先の申請は、すでに申請中です。取り下げてから、もう一度申請してください。'); }
+    var list = parseEmails(String((body.fields || {}).emails || ''));
+    if (!list.length) { return { ok: false, error: { code: 'BAD_INPUT', message: '通知先は1つ以上にしてください（全部は外せません）。' } }; }
+    if (list.some(function (e) { return !emailOk(e); })) { return { ok: false, error: { code: 'BAD_INPUT', message: 'メールアドレスの形が読めません。' } }; }
+    if (list.length > 10) { return { ok: false, error: { code: 'BAD_INPUT', message: '通知先は 10 件までです。' } }; }
+    var before = (sb.contacts || []).join('\n');
+    var after = list.join('\n');
+    if (before === after) { return demoDashboard(sb.id, '変更がありません（いまの通知先と同じです）。'); }
+    demoRequests.unshift({ id: 'RDEMO-' + (demoRequests.length + 1), at: jstNow(), storeId: sb.id, storeName: sb.name, kind: '通知先', state: REQ_STATE.PENDING,
+      by: (body.name ? body.name + '（' + DEMO_EMAIL + '）' : DEMO_EMAIL), after: { emails: after }, before: { emails: before }, judgedAt: '', judgedBy: '', reason: '', synced: '', note: '' });
+    return demoDashboard(sb.id, '申請しました。運営が確認します（見本の中だけ。本物では運営にメールが届きます）。');
+  }
   function demoLatestRequest(storeId) {
     var hit = null;
     demoRequests.forEach(function (r) { if (r.storeId === storeId && r.kind === 'お店の情報' && !hit) { hit = r; } });
@@ -3028,6 +3463,7 @@
   function demoDashboard(storeId, notice) {
     var b = demoBook(storeId);
     var today = jstDate(0);
+    b.cards.forEach(demoBigMark);
     var cards = b.cards.slice().sort(function (x, y) {
       var dx = x.deliveryDate || '9999-99-99';
       var dy = y.deliveryDate || '9999-99-99';
@@ -3040,6 +3476,7 @@
       email: DEMO_EMAIL, stores: demoBooks.map(function (x) { return { id: x.id, name: x.name }; }),
       settings: b.settings, open: openStateOf(b.settings, today), ops: true, requestsReady: true, request: demoLatestRequest(b.id), products: demoProducts(b),
       productConfig: DEMO_PRODUCT_CONFIG, banners: DEMO_BANNERS,
+      big: demoBigInfo(b), news: demoNewsFor(b.id), newsAll: demoNewsAll(), contacts: (b.contacts || []).slice(), contactMax: 10, contactRequest: demoLatestContact(b.id),
       store: { id: b.id, name: b.name, address: b.settings.address, phone: b.settings.tel, bank: b.settings.bank }, canConfirm: true, logProblem: '', notice: notice || ''
     };
   }
@@ -3066,6 +3503,8 @@
           hit.delivered = { at: jstNow(), by: who };
           return resolve(demoDashboard(body.storeId, '注文番号 ' + hit.orderNumber + ' を納品済みにしました。'));
         }
+        if (action === 'bigReply') { demoInit(); return resolve(demoBigReply(body)); }
+        if (action === 'postNews' || action === 'withdrawNews') { demoInit(); return resolve(demoNewsAction(body)); }
         if (action === 'submitRequest' || action === 'withdrawRequest' || action === 'listRequests' || action === 'judgeRequest' || action === 'photo' || action === 'setProductStatus' || action === 'markSynced') {
           demoInit();
           if (action === 'setProductStatus') {
@@ -3108,6 +3547,7 @@
           }
           if (action === 'submitRequest') {
             if (body.kind === 'product') { return resolve(demoSubmitProduct(body)); }
+            if (body.kind === 'contact') { return resolve(demoSubmitContact(body)); }
             var sb = demoBook(body.storeId);
             var curReq = demoLatestRequest(sb.id);
             if (curReq && curReq.state === REQ_STATE.PENDING) { return resolve(demoDashboard(sb.id, 'すでに申請中のものがあります。取り下げてから、もう一度申請してください。')); }
@@ -3138,20 +3578,31 @@
             target.judgedAt = jstNow(); target.judgedBy = (body.name ? body.name + '（' + DEMO_EMAIL + '）' : DEMO_EMAIL); target.reason = body.decision === 'reject' ? String(body.reason).trim() : '';
             if (body.decision === 'approve') {
               var tb = demoBook(target.storeId);
-              if (target.kind === '商品') { demoApproveProduct(tb, target); } else { Object.keys(target.after).forEach(function (k) { tb.settings[k] = target.after[k]; }); }
+              if (target.kind === '商品') { demoApproveProduct(tb, target); }
+              else if (target.kind === '通知先') { tb.contacts = String(target.after.emails || '').split('\n').filter(Boolean); target.synced = jstNow(); }
+              else { Object.keys(target.after).forEach(function (k) { tb.settings[k] = target.after[k]; }); }
             }
-            noticeJ = body.decision === 'approve' ? '承認しました（見本の中だけ。本物ではお店にメールが届きます）。受注サイトへの反映は運営の手です。' : '差し戻しました（見本の中だけ。本物ではお店にメールが届きます）。';
+            noticeJ = body.decision !== 'approve' ? '差し戻しました（見本の中だけ。本物ではお店にメールが届きます）。' :
+              (target.kind === '通知先' ? '承認しました（見本の中だけ。本物では マスタの通知先がすぐ書き換わり、足したメールに招待が届きます）。' :
+                '承認しました（見本の中だけ。本物ではお店にメールが届きます）。受注サイトへの反映は運営の手です。');
           }
           return resolve({ ok: true, ready: true, requests: demoRequests.slice(), pending: demoRequests.filter(function (r) { return r.state === REQ_STATE.PENDING; }).length, notice: noticeJ });
         }
         if (action === 'saveSettings') {
           var bk = demoBook(body.storeId);
-          var keys = body.scope === 'store' ? ['address', 'tel', 'map_url', 'bank'] : ['closed_weekdays', 'holidays', 'stop', 'stop_note', 'stop_until', 'lead_days', 'cutoff_time', 'areas', 'min_lot'];
+          var keys = body.scope === 'store' ? ['address', 'tel', 'map_url', 'bank'] : ['closed_weekdays', 'holidays', 'stop', 'stop_note', 'stop_until', 'lead_days', 'cutoff_time', 'large_lead_days', 'areas', 'min_lot'];
           var inp = body.settings || {};
+          if (body.scope !== 'store' && inp.large_lead_days != null && String(inp.large_lead_days).trim() !== '') {
+            var ll = Number(String(inp.large_lead_days).trim());
+            var nl = String(inp.lead_days == null ? '' : inp.lead_days).trim() !== '' ? Number(inp.lead_days) : 2;
+            if (!(ll >= 0 && ll <= 60) || Math.floor(ll) !== ll) { return resolve({ ok: false, error: { code: 'BAD_INPUT', message: '大口の締切（何日前まで）は 0〜60 の数で' } }); }
+            if (ll < nl) { return resolve({ ok: false, error: { code: 'BAD_INPUT', message: '大口の締切は、ふだんの締切と同じか、それより前（大きい数）にしてください' } }); }
+          }
           var td = jstDate(0);
           var changed = 0;
           keys.forEach(function (k) {
             var v = inp[k];
+            if (k === 'large_lead_days' && v === undefined) { return; }
             if (k === 'closed_weekdays' || k === 'holidays') {
               var arr = (Array.isArray(v) ? v : splitList(v)).filter(function (x, i, all) { return (k === 'holidays' ? x >= td : /^[0-6]$/.test(x)) && all.indexOf(x) === i; });
               v = arr.sort().join(',');

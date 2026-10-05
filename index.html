@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <!--
-  index.html ── matchimo 店舗管理画面（v6・2026-10-05：商品の種類（お弁当4枚／オードブル8枚の写真）・オプション・申請の結果をボタンの横に・黒い左メニュー・上の広告枠）
+  index.html ── matchimo 店舗管理画面（v7・2026-10-05 夕：大口の【作れる】【作れない】・大口の締切・お知らせ・通知先の申請・トップの「大口の返事待ち」）
+  （v6・2026-10-05：商品の種類（お弁当4枚／オードブル8枚の写真）・オプション・申請の結果をボタンの横に・黒い左メニュー・上の広告枠）
   （v5・2026-10-04：商品の箱＝追加・編集・写真は申請 → 承認／公開停止は即時）
   ログインID（＝お店のメールアドレス）とパスワードで入る。パスワードは、お店が招待メールのリンクから決める。
   左の縦メニューで箱を切り替える：トップ／注文／帳票／売上／お店の情報／営業の設定／商品／口コミ（準備中）／お知らせ／設定。運営は「申請」も。
@@ -207,6 +208,12 @@
             <p id="homeUnconfSub" class="card-sub"></p>
             <div><button type="button" id="homeToUnconf" class="btn btn-primary btn-sm">未確認の注文を見る</button></div>
           </div>
+          <div class="card" id="homeBigCard" hidden>
+            <div class="card-title">大口の返事待ち</div>
+            <div id="homeBig" class="card-big"></div>
+            <p id="homeBigSub" class="card-sub"></p>
+            <div><button type="button" id="homeToBig" class="btn btn-primary btn-sm">大口の注文を見る</button></div>
+          </div>
           <div class="card">
             <div class="card-title">本日の納品</div>
             <div id="homeTodayBig" class="card-big"></div>
@@ -222,14 +229,15 @@
             <p id="homeOpenSub" class="card-sub"></p>
             <div><button type="button" id="homeToHours" class="btn btn-secondary btn-sm">営業の設定へ</button></div>
           </div>
-          <div class="card">
-            <div class="card-title">運営からのお知らせ</div>
-            <p id="homeNews" class="card-sub">お知らせはありません。</p>
+          <div class="card" id="homeNewsCard">
+            <div class="card-title">運営からのお知らせ <span id="homeNewsUnread" class="badge badge-danger" hidden></span></div>
+            <div id="homeNews" class="mini-list"></div>
+            <div><button type="button" id="homeToNews" class="btn btn-secondary btn-sm">お知らせを見る</button></div>
           </div>
           <div class="card">
             <div class="card-title">情報の充実度</div>
             <div id="homeMeter" class="meter"></div>
-            <p class="card-sub">商品とお店の情報が入ると、ここが埋まります。</p>
+            <p class="card-sub">商品とお店の情報が入ると、ここが埋まります。行を押すと、その箱へ。</p>
           </div>
           <div class="card">
             <div class="card-title">自店のページ</div>
@@ -366,6 +374,7 @@
             <div class="field field-wide"><label for="hrStopNote">停止の理由（お客さまに見せる一言）</label><input id="hrStopNote" type="text" maxlength="100" placeholder="例：仕込みのため、◯日まで受付を止めています"></div>
             <div class="field"><label for="hrLead">締切（納品日の何日前まで）</label><input id="hrLead" type="number" min="0" max="30" inputmode="numeric" placeholder="例：2"></div>
             <div class="field"><label for="hrCutoff">締切の時刻</label><input id="hrCutoff" type="time"></div>
+            <div class="field" id="hrLargeLeadField" hidden><label for="hrLargeLead">大口の締切（納品日の何日前まで）</label><input id="hrLargeLead" type="number" min="0" max="60" inputmode="numeric" placeholder="空＝ふだんの締切＋2日"><p class="hint" id="hrLargeLeadHint"></p></div>
             <div class="field field-wide"><label for="hrArea">対応エリア</label><textarea id="hrArea" maxlength="300" placeholder="例：品川区・港区・目黒区・大田区"></textarea></div>
             <div class="field"><label for="hrMinLot">最小ロット（お店の既定）</label><input id="hrMinLot" type="number" min="1" max="9999" inputmode="numeric" placeholder="例：20"></div>
           </div>
@@ -429,7 +438,30 @@
       <!-- お知らせ -->
       <section id="box-news" class="box" hidden>
         <div class="page-head"><h1>お知らせ</h1></div>
-        <div class="panel"><p class="empty">運営からのお知らせはありません。</p></div>
+        <div id="newsOps" class="panel pad" hidden>
+          <h2 class="h2">お知らせを書く（運営）</h2>
+          <div class="form-grid">
+            <div class="field"><label for="newsTo">宛先</label><select id="newsTo" class="select"></select></div>
+            <div class="field field-wide"><label for="newsTitle">見出し（60字まで）</label><input id="newsTitle" type="text" maxlength="60" placeholder="例：年末年始の営業について"></div>
+            <div class="field field-wide"><label for="newsBody">本文（1000字まで）</label><textarea id="newsBody" maxlength="1000" placeholder="例：12/29〜1/3 は受注サイトをお休みします。"></textarea></div>
+          </div>
+          <p class="hint">出したお知らせは、お店の画面のトップと「お知らせ」に出ます（メールは送りません）。</p>
+          <div class="toolbar-actions"><button type="button" id="newsPost" class="btn btn-primary">お知らせを出す</button></div>
+        </div>
+        <div class="panel">
+          <div id="newsList" class="news-list"></div>
+          <p id="newsEmpty" class="empty">運営からのお知らせはありません。</p>
+        </div>
+        <div id="newsOpsWrap" class="panel" hidden>
+          <div class="panel-tools pad-sm"><strong>出したお知らせ（運営だけに見える・取り下げたものも）</strong></div>
+          <div class="table-wrap">
+            <table class="table" id="newsOpsTable">
+              <thead><tr><th>日時</th><th>宛先</th><th>見出し</th><th>状態</th><th class="act"></th></tr></thead>
+              <tbody id="newsOpsRows"></tbody>
+            </table>
+          </div>
+          <p id="newsOpsEmpty" class="empty" hidden>まだ出していません。</p>
+        </div>
       </section>
 
       <!-- 設定 -->
@@ -442,12 +474,20 @@
               <input id="setName" type="text" maxlength="20" autocomplete="name">
             </div>
             <div class="field">
-              <label for="setEmail">ログインID・通知先（メールアドレス）</label>
+              <label for="setEmail">ログインID（いまログインしているメールアドレス）</label>
               <input id="setEmail" type="text" disabled>
-              <p class="hint">変更は運営（matchimo）へ。お店の側で足せるようにする予定です（準備中）。</p>
+              <p class="hint" id="setEmailHint">変更は運営（matchimo）へ。</p>
             </div>
           </div>
           <div class="toolbar-actions"><button type="button" id="setSave" class="btn btn-primary">担当者名を保存</button></div>
+          <div id="ctWrap" hidden>
+            <h2 class="h2">通知先（ログインできるメールアドレス）</h2>
+            <p class="muted">受注のメールが届く宛先で、この店舗管理画面にログインできるメールアドレスです。足す・外すときは、新しい一覧を書いて【変更を申請する】→ 運営が承認すると、すぐ切り替わります。足したメールには、パスワードを決める招待のメールが届きます。外したメールは、その場でログインできなくなります。</p>
+            <div class="field field-wide"><span class="field-label">いまの通知先</span><div id="ctCurrent" class="chips"></div></div>
+            <div id="ctStatus" class="box box-gray" hidden></div>
+            <div class="field field-wide"><label for="ctList">新しい一覧（1行に1つ・<span id="ctMax">10</span>件まで・少なくとも1つ）</label><textarea id="ctList" rows="4" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea><p class="hint" id="ctHint"></p></div>
+            <div class="toolbar-actions"><button type="button" id="ctSubmit" class="btn btn-primary">変更を申請する</button><button type="button" id="ctWithdraw" class="btn btn-secondary" hidden>申請を取り下げる</button><span id="ctResult" class="inline-result" role="status" hidden></span></div>
+          </div>
           <h2 class="h2">パスワード</h2>
           <p class="muted">パスワードを変えるときは、ログイン画面の「パスワードを忘れた方」から、決め直しのリンクをメールで受け取ってください。</p>
           <div class="toolbar-actions"><button type="button" id="setPwBtn" class="btn btn-secondary">パスワードを決め直す（ログアウトします）</button></div>
@@ -508,6 +548,29 @@
     <div class="modal-actions">
       <button type="button" id="dmodalCancel" class="btn btn-secondary">キャンセル</button>
       <button type="button" id="dmodalOk" class="btn btn-primary"></button>
+    </div>
+  </div>
+</div>
+
+<!-- 大口の返事のダイアログ（作れる／作れない）2026-10-05 夕 -->
+<div id="bmodal" class="modal" hidden>
+  <div class="modal-backdrop"></div>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="bmodalTitle">
+    <h2 id="bmodalTitle"></h2>
+    <div id="bmodalBody" class="modal-body"></div>
+    <div class="big-choices">
+      <div class="big-choice is-ok"><strong>作れる</strong><span>確認ずみにして、お客さまへ「ご注文が確定しました」のメールを送ります。お客さまの返信は、お店のメールに届きます。</span></div>
+      <div class="big-choice is-ng"><strong>作れない</strong><span id="bmodalNgText"></span></div>
+    </div>
+    <p class="alert alert-warning small">返事は1回だけです（あとから変えられません）。</p>
+    <div class="field">
+      <label for="bwhoName">担当者名（任意）</label>
+      <input id="bwhoName" type="text" maxlength="20" autocomplete="name">
+    </div>
+    <div class="modal-actions">
+      <button type="button" id="bmodalCancel" class="btn btn-secondary">やめる</button>
+      <button type="button" id="bmodalNg" class="btn btn-danger">作れない</button>
+      <button type="button" id="bmodalOk" class="btn btn-primary">作れる</button>
     </div>
   </div>
 </div>
