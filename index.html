@@ -3,11 +3,12 @@
 <head>
 <meta charset="utf-8">
 <!--
-  index.html ── matchimo 店舗管理画面（v7・2026-10-05 夕：大口の【作れる】【作れない】・大口の締切・お知らせ・通知先の申請・トップの「大口の返事待ち」）
+  index.html ── matchimo 店舗管理画面（v8・2026-10-07：口コミ＝公開ずみの口コミを見て、返信を申請 → 運営が承認・トップの「新しい口コミ」）
+  （v7・2026-10-05 夕：大口の【作れる】【作れない】・大口の締切・お知らせ・通知先の申請・トップの「大口の返事待ち」）
   （v6・2026-10-05：商品の種類（お弁当4枚／オードブル8枚の写真）・オプション・申請の結果をボタンの横に・黒い左メニュー・上の広告枠）
   （v5・2026-10-04：商品の箱＝追加・編集・写真は申請 → 承認／公開停止は即時）
   ログインID（＝お店のメールアドレス）とパスワードで入る。パスワードは、お店が招待メールのリンクから決める。
-  左の縦メニューで箱を切り替える：トップ／注文／帳票／売上／お店の情報／営業の設定／商品／口コミ（準備中）／お知らせ／設定。運営は「申請」も。
+  左の縦メニューで箱を切り替える：トップ／注文／帳票／売上／お店の情報／営業の設定／商品／口コミ／お知らせ／設定。運営は「申請」も。
   データは matchimo の窓口（Google Apps Script）から受け取る。帳票はブラウザの印刷（PDF に保存）で出す。
   🔴 この画面のファイルは公開される。お客さま情報・パスワード・窓口の URL を入れない。
   🔴 お店のデータは必ず textContent で入れる（innerHTML に入れない）。
@@ -229,6 +230,12 @@
             <p id="homeOpenSub" class="card-sub"></p>
             <div><button type="button" id="homeToHours" class="btn btn-secondary btn-sm">営業の設定へ</button></div>
           </div>
+          <div class="card" id="homeReviewsCard" hidden>
+            <div class="card-title">新しい口コミ</div>
+            <div id="homeReviews" class="card-big"></div>
+            <p id="homeReviewsSub" class="card-sub"></p>
+            <div><button type="button" id="homeToReviews" class="btn btn-secondary btn-sm">口コミを見る</button></div>
+          </div>
           <div class="card" id="homeNewsCard">
             <div class="card-title">運営からのお知らせ <span id="homeNewsUnread" class="badge badge-danger" hidden></span></div>
             <div id="homeNews" class="mini-list"></div>
@@ -430,9 +437,13 @@
 
       <!-- 口コミ -->
       <section id="box-reviews" class="box" hidden>
-        <div class="page-head"><h1>口コミ</h1></div>
-        <p class="coming">準備中 ── 運営が承認した口コミがここに出ます。返信を書いて【申請】→ 運営が【承認】→ 受注サイトのお店のページへ。</p>
-        <div class="panel"><p class="empty">まだ口コミはありません。納品の翌日に、お客さまへ口コミのお願いが自動で届きます。</p></div>
+        <div class="page-head"><h1>口コミ</h1><div class="page-actions"><button type="button" id="rvRefresh" class="btn btn-secondary btn-sm">更新</button></div></div>
+        <p id="rvComing" class="coming" hidden></p>
+        <p class="hint" id="rvHint">運営が公開にした口コミが、新しい順に出ます（お客さまの会社名・お名前・メールアドレスは出しません）。返信を書いて【申請する】→ 運営が確かめて【承認】→「承認ずみ」になります。受注サイトのお店のページに口コミと返信を出す仕組みは、いま準備しています。</p>
+        <div class="panel">
+          <div id="rvList" class="review-list"></div>
+          <p id="rvEmpty" class="empty" hidden>まだ公開された口コミはありません。納品の翌日に、お客さまへ口コミのお願いが自動で届きます。</p>
+        </div>
       </section>
 
       <!-- お知らせ -->

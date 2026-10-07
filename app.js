@@ -1,5 +1,7 @@
 /**
- * app.js ── matchimo 店舗管理画面の動き（v7・2026-10-05 夕：大口の【作れる】【作れない】（返事は24時間以内）・大口の締切・お知らせ（運営 → お店・画面だけ）・
+ * app.js ── matchimo 店舗管理画面の動き（v8・2026-10-07：口コミ＝運営が公開にした口コミを見て、返信を【申請する】→ 運営が【承認】・
+ *           トップの「新しい口コミ」・運営の「申請」で返信の見比べ。窓口 v10 と組む。窓口が v9 以前なら、口コミの箱は「準備中」の一言）
+ *   （v7・2026-10-05 夕：大口の【作れる】【作れない】（返事は24時間以内）・大口の締切・お知らせ（運営 → お店・画面だけ）・
  *           通知先の申請（設定）・トップの「大口の返事待ち」とお知らせ・充実度の行から箱へ。窓口 v9 と組む。窓口が v8 以前なら、前の形のまま動く）
  *   （v6・2026-10-05：商品の種類・写真の並べ替え（お弁当4枚／オードブル8枚）・オプション（候補＋そのほか）・申請の結果を【申請する】の横に・上の広告枠）
  *   （v5・2026-10-04：商品の箱＝追加・編集・写真は申請 → 承認／公開停止は即時／運営の【反映した】）
@@ -8,7 +10,7 @@
  *       → 窓口（Google Apps Script）から注文をもらって、左の縦メニューの箱に分けて見せる
  *       はじめて・忘れたとき：メールのリンク（…#k=窓口の番号&invite=印）で開く → パスワードを決める → そのままログイン
  * 箱：トップ／注文（確認する・納品済み・検索）／帳票（注文書・個数表・貼り札・納品書・請求書・領収書・CSV）／売上／
- *     お店の情報（文章・写真は申請 → 承認）／営業の設定／商品（追加・編集・写真は申請 → 承認。公開停止は即時）／口コミ・お知らせ（準備中の形だけ）／設定／運営だけの「申請」
+ *     お店の情報（文章・写真は申請 → 承認）／営業の設定／商品（追加・編集・写真は申請 → 承認。公開停止は即時）／口コミ（返信は申請 → 承認）／お知らせ／設定／運営だけの「申請」
  * 🔴 窓口の番号は、config.js の指紋（SHA-256）と合うものだけ使う（偽のリンクでパスワードを送らせないため）。
  * 🔴 お店のデータは必ず textContent で入れる（innerHTML に入れない）。
  * 🔴 Google のログインの印（Cookie）は送らない（credentials: 'omit'）。窓口は通行証だけで判断する。
@@ -35,14 +37,15 @@
     ['store', 'お店の情報', '🏪'], ['hours', '営業の設定', '🗓'], ['products', '商品', '🍱'], ['reviews', '口コミ', '⭐'],
     ['news', 'お知らせ', '📣'], ['settings', '設定', '⚙']
   ];
-  var SOON = ['reviews'];
+  var SOON = []; // 🆕 v8：口コミは「準備中」でなくなった（窓口が v9 以前なら、箱の中に一言）
   var NAV_SEP_BEFORE = ['home', 'store', 'reviews']; // 左メニューの区切り（運営の「申請」／注文まわり／お店のこと／そのほか）
   var DOC_KINDS = [['order', '注文書'], ['count', '個数表'], ['label', '貼り札'], ['delivery', '納品書'], ['invoice', '請求書'], ['receipt', '領収書'], ['csv', 'CSV']];
   var S = { api: '', token: '', storeId: '', name: '', data: null, tab: '', box: '', detailKey: '', modalCard: null, sending: false, lastFocus: null,
     invite: '', notice: '', query: '', deliverCard: null, deliverUndo: false, docDate: '', docKind: 'order', docOff: {}, salesMonth: '', hoursDirty: false, storeDirty: false, holidays: null,
     storyDirty: false, photoFile: null, photos: {}, requests: null, pending: 0, requestsReady: true, reqFilter: 'pending', reqOpen: null, judge: null,
     prEdit: null, prDirty: false, prPhotos: [], prOptions: [], prResult: null, stResult: null, prLocked: false, prPending: false, pmodal: null,
-    adIndex: 0, adTimer: null, adHold: false, bigCard: null, ctDirty: false, ctResult: null, newsArm: '' };
+    adIndex: 0, adTimer: null, adHold: false, bigCard: null, ctDirty: false, ctResult: null, newsArm: '',
+    reviews: null, rvStore: '', rvState: '', rvMax: 400, rvEdit: '', rvDraft: '', rvResult: null };
 
   // ---------------------------------------------------------------------------
   // 小さな道具
@@ -630,6 +633,7 @@
     if (id === 'requests') { return renderRequests(); }
     if (id === 'products') { return renderProducts(); }
     if (id === 'news') { return renderNews(); }
+    if (id === 'reviews') { return renderReviews(); }
   }
 
   function openNav() {
@@ -733,6 +737,24 @@
     $('homeNewsUnread').textContent = '新着 ' + unread;
     $('homeToNews').hidden = news.length === 0;
 
+    // 🆕 v8：新しい口コミ（窓口 v10 が数える。窓口が v9 以前なら出さない）
+    var rv = d.reviews;
+    $('homeReviewsCard').hidden = !rv;
+    if (rv) {
+      var hr = clear($('homeReviews'));
+      if (!rv.ready) {
+        hr.appendChild(document.createTextNode('準備中'));
+        $('homeReviewsCard').className = 'card';
+        $('homeReviewsSub').textContent = '運営が口コミの受け皿をつないでいます。つながると、お客さまの口コミがここに出ます。';
+      } else {
+        hr.appendChild(document.createTextNode(String(rv.recent || 0)));
+        hr.appendChild(el('span', 'unit', '件'));
+        $('homeReviewsCard').className = 'card' + (rv.recent ? ' is-alert' : '');
+        $('homeReviewsSub').textContent = (rv.recent ? 'この' + (rv.days || 7) + '日に公開された口コミです。返信を書けます。' : 'この' + (rv.days || 7) + '日に公開された口コミはありません。') +
+          (rv.pending ? '　返信の申請中 ' + rv.pending + '件（運営が確認しています）。' : '');
+      }
+    }
+
     var st = settingsOf();
     var prods = productsOf().filter(function (p) { return p.approved; });
     var every = function (f) { return prods.length ? prods.every(f) : null; }; // 商品が無ければ null（まだ）
@@ -756,6 +778,7 @@
   $('homeToUnconf').addEventListener('click', function () { S.tab = 'unconfirmed'; setBox('orders', false); });
   $('homeToBig').addEventListener('click', function () { S.tab = 'unconfirmed'; setBox('orders', false); });
   $('homeToNews').addEventListener('click', function () { setBox('news', false); });
+  $('homeToReviews').addEventListener('click', function () { setBox('reviews', false); });
   $('homeToHours').addEventListener('click', function () { setBox('hours', false); });
 
   // ---------------------------------------------------------------------------
@@ -1940,6 +1963,195 @@
     showForgot();
   });
   // ---------------------------------------------------------------------------
+  // 🆕 v8 口コミ（2026-10-07・窓口 v10）── 運営が公開にした口コミを見て、返信を【申請する】→ 運営が【承認】
+  //   口コミは箱を開いたときに読む（トップを遅くしない）。お客さまの会社名・お名前・メールアドレスは窓口から来ない
+  //   注文番号は、お客さまが「お店からの連絡」に同意した口コミだけ来る。返信は口コミごとに申請中1件・400字まで
+  // ---------------------------------------------------------------------------
+
+  /** 口コミを読む。quiet＝いまの一覧を出したまま読み直す（申請・取り下げのあと）。 */
+  function fetchReviews(quiet) {
+    var sid = S.data && S.data.store ? S.data.store.id : '';
+    if (!quiet) { S.rvState = 'loading'; renderReviewList(); }
+    callApi({ action: 'reviews', token: S.token, storeId: sid }).then(function (res) {
+      if (!S.data || S.data.store.id !== sid) { return; } // 読んでいる間にお店を切り替えた
+      S.rvStore = sid;
+      if (!res || res.error) {
+        if (res && res.error && res.error.code === 'LOGIN') { return logout(res.error.message); }
+        S.reviews = [];
+        S.rvState = (res && res.error && res.error.code === 'BAD_REQUEST') ? 'old' : 'error'; // BAD_REQUEST＝窓口が v9 以前（reviews を知らない）
+        S.rvError = (res && res.error && res.error.message) || '';
+      } else {
+        S.reviews = res.reviews || [];
+        S.rvState = res.ready === false ? 'notready' : 'ok';
+        S.rvMax = res.replyMax || 400;
+      }
+      if (S.box === 'reviews') { renderReviewList(); }
+    }, function () {
+      S.rvState = 'error';
+      S.rvError = '口コミを読めませんでした（通信）。電波のよいところで【更新】を押してください。';
+      if (S.box === 'reviews') { renderReviewList(); }
+    });
+  }
+  function renderReviews() {
+    if (!S.data) { return; }
+    if (S.reviews === null || S.rvStore !== S.data.store.id) { return fetchReviews(false); }
+    renderReviewList();
+  }
+  function renderReviewList() {
+    var list = clear($('rvList'));
+    var st = S.rvState;
+    var coming = $('rvComing');
+    coming.hidden = !(st === 'old' || st === 'notready' || st === 'error');
+    coming.className = st === 'error' ? 'box box-warning' : 'coming';
+    coming.textContent = st === 'old' ? '準備中 ── 窓口の新しい版（v10）を入れると使えます（運営の作業を待っています）。' :
+      st === 'notready' ? '準備中 ── 運営が口コミの受け皿をつないでいます。つながると、お客さまの口コミ（運営が公開にしたもの）がここに出て、返信を書けます。' :
+      st === 'error' ? (S.rvError || '口コミを読めませんでした。【更新】を押してください。') : '';
+    var empty = $('rvEmpty');
+    if (st === 'loading') {
+      empty.hidden = false;
+      empty.textContent = '読み込み中…';
+      return;
+    }
+    var rows = st === 'ok' ? (S.reviews || []) : [];
+    empty.hidden = !(st === 'ok' && rows.length === 0);
+    empty.textContent = 'まだ公開された口コミはありません。納品の翌日に、お客さまへ口コミのお願いが自動で届きます。';
+    rows.forEach(function (r) { list.appendChild(reviewItem(r)); });
+  }
+  function replyHead(title, badgeCls, badgeText) {
+    var h = el('div', 'review-reply-head');
+    h.appendChild(el('strong', '', title));
+    h.appendChild(el('span', 'badge ' + badgeCls, badgeText));
+    return h;
+  }
+  function reviewItem(r) {
+    var item = el('article', 'review-item');
+    item.setAttribute('data-review', r.id);
+    var head = el('div', 'review-head');
+    head.appendChild(el('span', 'review-date', r.date || ''));
+    if (r.industry) { head.appendChild(el('span', 'badge badge-gray', r.industry)); }
+    if (r.scene) { head.appendChild(el('span', 'badge badge-gray', r.scene)); }
+    item.appendChild(head);
+    item.appendChild(el('p', 'review-body', r.body || ''));
+    if (r.orderNumber) { item.appendChild(el('p', 'review-order', 'ご注文番号 ' + r.orderNumber + '（お客さまは、お店からの連絡に同意しています）')); }
+    var box = el('div', 'review-reply');
+    var q = r.request;
+    var pending = !!(q && q.state === REQ_STATE.PENDING);
+    var rejected = !!(q && q.state === REQ_STATE.REJECTED);
+    if (r.reply) {
+      box.appendChild(replyHead('お店の返信', 'badge-success', '✓ 承認ずみ' + (r.reply.at ? '（' + r.reply.at + '）' : '')));
+      box.appendChild(el('p', 'review-reply-body', r.reply.body));
+    }
+    if (pending) {
+      box.appendChild(replyHead(r.reply ? '直した返信' : 'お店の返信', 'badge-danger', '申請中（' + (q.at || '') + '）── 運営が確認しています'));
+      box.appendChild(el('p', 'review-reply-body', q.reply || ''));
+    } else if (rejected) {
+      box.appendChild(replyHead('差し戻された返信', 'badge-purple', '差し戻し' + (q.judgedAt ? '（' + q.judgedAt + '）' : '')));
+      box.appendChild(el('p', 'review-reply-body', q.reply || ''));
+      if (q.reason) { box.appendChild(el('p', 'box box-warning', '理由：' + q.reason)); }
+    }
+    if (!r.reply && !q) { box.appendChild(el('p', 'muted small', '返信はまだありません。')); }
+    var editing = S.rvEdit === r.id && !pending;
+    if (editing) {
+      var ta = el('textarea', 'review-ta');
+      ta.id = 'rvText';
+      ta.maxLength = S.rvMax;
+      ta.value = S.rvDraft;
+      ta.placeholder = '例：ご利用ありがとうございました。またのご注文をお待ちしております。';
+      ta.setAttribute('aria-label', '返信（' + S.rvMax + '字まで）');
+      var cnt = el('span', 'review-count', S.rvDraft.length + ' / ' + S.rvMax + '字');
+      ta.addEventListener('input', function () { S.rvDraft = ta.value; cnt.textContent = ta.value.length + ' / ' + S.rvMax + '字'; });
+      box.appendChild(ta);
+      box.appendChild(cnt);
+    }
+    var acts = el('div', 'toolbar-actions review-actions');
+    if (pending) {
+      var w = el('button', 'btn btn-secondary btn-sm', '申請を取り下げる');
+      w.type = 'button';
+      w.addEventListener('click', function () { withdrawReply(r, q); });
+      acts.appendChild(w);
+    } else if (editing) {
+      var send = el('button', 'btn btn-primary btn-sm', '申請する');
+      send.type = 'button';
+      send.addEventListener('click', function () { submitReply(r); });
+      acts.appendChild(send);
+      var cancel = el('button', 'btn btn-secondary btn-sm', 'やめる');
+      cancel.type = 'button';
+      cancel.addEventListener('click', function () { S.rvEdit = ''; S.rvDraft = ''; S.rvResult = null; renderReviewList(); });
+      acts.appendChild(cancel);
+    } else if (S.rvState === 'ok') {
+      var open = el('button', 'btn btn-secondary btn-sm', (r.reply || rejected) ? '直す' : '返信を書く');
+      open.type = 'button';
+      open.addEventListener('click', function () {
+        S.rvEdit = r.id;
+        S.rvDraft = rejected ? (q.reply || '') : (r.reply ? r.reply.body : '');
+        S.rvResult = null;
+        renderReviewList();
+        setTimeout(function () { try { $('rvText').focus(); } catch (e) { /* 何もしない */ } }, 0);
+      });
+      acts.appendChild(open);
+    }
+    if (S.rvResult && S.rvResult.id === r.id && S.rvResult.text) {
+      var res = el('span', 'inline-result is-' + S.rvResult.kind, (S.rvResult.kind === 'ok' ? '✓ ' : (S.rvResult.kind === 'ng' ? '⚠ ' : '')) + S.rvResult.text);
+      res.setAttribute('role', 'status');
+      acts.appendChild(res);
+    }
+    box.appendChild(acts);
+    item.appendChild(box);
+    return item;
+  }
+  function rvFail(r, msg) {
+    S.rvResult = { id: r.id, text: msg, kind: 'ng' };
+    renderReviewList();
+  }
+  function submitReply(r) {
+    if (S.sending) { return; }
+    var text = String(S.rvDraft || '').trim();
+    if (!text) { return rvFail(r, '返信を書いてください。'); }
+    if (text.length > S.rvMax) { return rvFail(r, '返信は ' + S.rvMax + ' 字までです（いま ' + text.length + ' 字）。'); }
+    S.sending = true;
+    busy(true);
+    callApi({ action: 'submitRequest', token: S.token, storeId: S.data.store.id, kind: 'reply', reviewId: r.id, fields: { reply: text }, name: S.name }).then(function (res) {
+      S.sending = false;
+      busy(false);
+      if (!res || res.error) {
+        if (res && res.error && res.error.code === 'LOGIN') { return logout(res.error.message); }
+        return rvFail(r, (res && res.error && res.error.message) || '申請できませんでした。もう一度押してください。');
+      }
+      var out = resultOf(res) || { text: '申請しました。', kind: 'ok' };
+      out.id = r.id;
+      if (out.kind === 'ok') { S.rvEdit = ''; S.rvDraft = ''; }
+      S.rvResult = out;
+      render(res, true);
+      fetchReviews(true);
+    }, function () {
+      S.sending = false;
+      busy(false);
+      rvFail(r, '申請できたか分かりません（通信）。【更新】を押して確かめてください。');
+    });
+  }
+  function withdrawReply(r, q) {
+    if (S.sending) { return; }
+    S.sending = true;
+    busy(true);
+    callApi({ action: 'withdrawRequest', token: S.token, storeId: S.data.store.id, requestId: q.id, name: S.name }).then(function (res) {
+      S.sending = false;
+      busy(false);
+      if (!res || res.error) {
+        if (res && res.error && res.error.code === 'LOGIN') { return logout(res.error.message); }
+        return rvFail(r, (res && res.error && res.error.message) || '取り下げできませんでした。');
+      }
+      S.rvResult = { id: r.id, text: res.notice || '申請を取り下げました。', kind: 'info' };
+      render(res, true);
+      fetchReviews(true);
+    }, function () {
+      S.sending = false;
+      busy(false);
+      rvFail(r, '取り下げできたか分かりません（通信）。【更新】を押して確かめてください。');
+    });
+  }
+  $('rvRefresh').addEventListener('click', function () { S.rvResult = null; fetchReviews(false); });
+
+  // ---------------------------------------------------------------------------
   // 営業の設定・お店の情報（事実の欄）── 承認なしで保存し、運営にメール（2026-10-04・窓口 saveSettings）
   // ---------------------------------------------------------------------------
 
@@ -2078,7 +2290,7 @@
   $('refresh').addEventListener('click', function () { load(S.storeId, false); });
   $('messageRetry').addEventListener('click', function () { if (S.token) { load(S.storeId, false); } else { location.reload(); } });
   $('noticeClose').addEventListener('click', function () { $('notice').hidden = true; });
-  $('storeSelect').addEventListener('change', function (ev) { S.tab = ''; S.docOff = {}; closeDetail(); load(ev.target.value, false); });
+  $('storeSelect').addEventListener('change', function (ev) { S.tab = ''; S.docOff = {}; S.reviews = null; S.rvEdit = ''; S.rvResult = null; closeDetail(); load(ev.target.value, false); });
   $('logout').addEventListener('click', function () {
     if (window.confirm('ログアウトしますか？（次に開くときは、ログインID（メールアドレス）とパスワードが要ります）')) { logout(''); }
   });
@@ -2134,6 +2346,7 @@
   var STORY_LABELS = { intro: 'お店の紹介文', point1_title: 'こだわり1（見出し）', point1_body: 'こだわり1（本文）', point2_title: 'こだわり2（見出し）', point2_body: 'こだわり2（本文）',
     point3_title: 'こだわり3（見出し）', point3_body: 'こだわり3（本文）', photo_id: 'お店の写真' };
   var REQ_STATE = { PENDING: '申請中', APPROVED: '承認', REJECTED: '差し戻し', WITHDRAWN: '取り下げ' };
+  var REPLY_LABELS = { reply: '返信' }; // 🆕 v8：申請の種類「返信」（口コミへの返信）
   var PHOTO_MAX = 4 * 1024 * 1024;
   var PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
@@ -2287,6 +2500,7 @@
     });
   }
   function reqBadge(r) {
+    if (r.kind === '返信' && r.state === REQ_STATE.APPROVED && !r.synced) { return el('span', 'badge badge-success', r.state); } // 返信を受注サイトに出すのは候補⑨のあと
     var cls = r.state === REQ_STATE.PENDING ? 'badge-danger' : (r.state === REQ_STATE.APPROVED ? (r.synced ? 'badge-success' : 'badge-warning') : (r.state === REQ_STATE.REJECTED ? 'badge-purple' : 'badge-gray'));
     return el('span', 'badge ' + cls, r.state + (r.state === REQ_STATE.APPROVED ? (r.synced ? '・反映ずみ' : '・未反映') : ''));
   }
@@ -2311,7 +2525,7 @@
     var rows = S.requests.filter(function (r) {
       if (f === 'all') { return true; }
       if (f === 'pending') { return r.state === REQ_STATE.PENDING; }
-      return r.state === REQ_STATE.APPROVED && !r.synced;
+      return r.state === REQ_STATE.APPROVED && !r.synced && r.kind !== '返信'; // 返信はまだ受注サイトに出さない（候補⑨）
     });
     $('reqCount').textContent = rows.length + '件';
     var tb = clear($('reqRows'));
@@ -2355,6 +2569,14 @@
     if (r.kind === '通知先' && r.state === REQ_STATE.PENDING) {
       body.appendChild(el('div', 'box box-warning', '承認すると、マスタの通知先（H列）がすぐ書き換わります。足したメールには招待が届き、外したメールは その場でログインできなくなります（受注のメールも届かなくなります）。'));
     }
+    if (r.kind === '返信') {
+      // 🆕 v8：どの口コミへの返信か（申請したときの口コミ。会社名・お名前・メールは入っていない）
+      var a0 = r.after || {};
+      body.appendChild(section('口コミ（お客さま）', [['投稿日', a0.review_date], ['業種', a0.review_industry], ['ご利用のシーン', a0.review_scene], ['本文', a0.review_body]]));
+      if (r.state === REQ_STATE.APPROVED) {
+        body.appendChild(el('p', 'muted small', '承認した返信は、お店の「口コミの返信」シートに入っています。受注サイトに口コミと返信を出す仕組み（候補⑨）ができるまで、【受注サイトに反映した】は要りません。'));
+      }
+    }
     var sec = el('div', 'section');
     sec.appendChild(el('h3', '', '変更前 → 変更後（変わった所は色つき）'));
     var t = el('table', 'diff');
@@ -2365,7 +2587,7 @@
     t.appendChild(thead);
     var tbody = el('tbody');
     var rerender = function () { if (S.reqOpen === r) { renderRequestDetail(r); } };
-    var labels = r.kind === '商品' ? PRODUCT_LABELS : (r.kind === '通知先' ? CONTACT_LABELS : STORY_LABELS);
+    var labels = r.kind === '商品' ? PRODUCT_LABELS : (r.kind === '通知先' ? CONTACT_LABELS : (r.kind === '返信' ? REPLY_LABELS : STORY_LABELS));
     Object.keys(labels).forEach(function (k) {
       var b = diffText(k, (r.before || {})[k]);
       var av = diffText(k, (r.after || {})[k]);
@@ -2392,7 +2614,7 @@
     close.type = 'button';
     close.addEventListener('click', closeDetail);
     foot.appendChild(close);
-    if (r.state === REQ_STATE.APPROVED && !r.synced) {
+    if (r.state === REQ_STATE.APPROVED && !r.synced && r.kind !== '返信') {
       var syn = el('button', 'btn btn-primary', '受注サイトに反映した');
       syn.type = 'button';
       syn.addEventListener('click', function () { doMarkSynced({ requestId: r.id }); });
@@ -2417,6 +2639,7 @@
     body.appendChild(el('p', 'strong', r.storeName + '：' + r.kind + '（' + r.at + '・' + r.by + '）'));
     body.appendChild(el('p', 'muted small', decision === 'approve' ? (r.kind === '通知先' ?
       '承認すると、マスタの通知先（H列）がすぐ書き換わり、足したメールに招待が届きます。外したメールは その場でログインできなくなります（お店の全員にメールで知らせます）。' :
+      r.kind === '返信' ? '承認すると、お店の「口コミの返信」に入り、お店にメールが届きます（受注サイトに口コミと返信を出すのは、その仕組みができてから）。' :
       '承認すると、お店の承認済みの内容になり、お店にメールが届きます。受注サイトへの反映は運営の手です（写し終えたら、この申請の【受注サイトに反映した】を押します）。') :
       '理由はお店に届きます。お店は直して、もう一度申請できます。'));
     $('jreasonField').hidden = decision !== 'reject';
@@ -3102,6 +3325,7 @@
   var demoBooks = null;
   var demoRequests = null;
   var demoNews = null;
+  var demoReviews = null;
   var demoPhotos = {};
   var DEMO_SVG = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="200"><rect width="800" height="200" fill="#dbe4ee"/><text x="400" y="110" font-size="28" text-anchor="middle" fill="#3b4a5c" font-family="sans-serif">見本の写真（1600×400）</text></svg>');
   var DEMO_SVG_P = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="860" height="645"><rect width="860" height="645" fill="#e9e2d6"/><text x="430" y="335" font-size="34" text-anchor="middle" fill="#5c4a3a" font-family="sans-serif">見本の商品写真（1720×1290）</text></svg>');
@@ -3450,6 +3674,69 @@
       by: (body.name ? body.name + '（' + DEMO_EMAIL + '）' : DEMO_EMAIL), after: { emails: after }, before: { emails: before }, judgedAt: '', judgedBy: '', reason: '', synced: '', note: '' });
     return demoDashboard(sb.id, '申請しました。運営が確認します（見本の中だけ。本物では運営にメールが届きます）。');
   }
+  // ---- 見本の口コミ（v8）：見本弁当＝返信なし・承認ずみの返信・返信の申請中／見本オードブル＝返信なし ----
+  function demoInitReviews() {
+    if (demoReviews) { return; }
+    var day = function (n) { return jstDate(n).replace(/-/g, '/'); };
+    demoReviews = [
+      { id: 'a1b2c3d4-0000-4000-8000-000000000001', storeId: 'DEMO_001', date: day(-1), industry: '情報通信', scene: '会議', contactOk: true, orderNumber: '#1104',
+        body: '会議で12食お願いしました。ロースかつがやわらかく、冷めてもおいしいと好評でした。配達も時間ぴったりで助かりました。', reply: null },
+      { id: 'a1b2c3d4-0000-4000-8000-000000000002', storeId: 'DEMO_001', date: day(-6), industry: '製造', scene: '研修', contactOk: false, orderNumber: '',
+        body: '研修のお昼に。量がちょうどよく、女性の参加者にも食べやすかったようです。', reply: { body: 'ご利用ありがとうございました。研修のお昼に選んでいただき、うれしいです。またのご注文をお待ちしております。', at: day(-5) + ' 10:12' } },
+      { id: 'a1b2c3d4-0000-4000-8000-000000000003', storeId: 'DEMO_001', date: day(-12), industry: '医療・福祉', scene: '懇親会', contactOk: false, orderNumber: '',
+        body: '懇親会で松花堂弁当を。見た目が華やかで、場が明るくなりました。', reply: null },
+      { id: 'a1b2c3d4-0000-4000-8000-000000000004', storeId: 'DEMO_002', date: day(-3), industry: '不動産', scene: '会議', contactOk: false, orderNumber: '',
+        body: 'オードブルを会議のあとの懇親会に。品数が多く、取り分けやすかったです。', reply: null }
+    ];
+    var rv3 = demoReviews[2];
+    demoRequests.unshift({ id: 'RDEMO-' + (demoRequests.length + 1), at: jstNow(), storeId: 'DEMO_001', storeName: '見本弁当（デモ）', kind: '返信', state: REQ_STATE.PENDING,
+      by: '見本 太郎（' + DEMO_EMAIL + '）', subject: '口コミ（' + rv3.date + '・' + rv3.industry + '）への返信',
+      after: { review_id: rv3.id, reply: '懇親会に選んでいただき、ありがとうございました。季節の松花堂も、ぜひお試しください。', title: '口コミ（' + rv3.date + '・' + rv3.industry + '）への返信',
+        review_date: rv3.date, review_industry: rv3.industry, review_scene: rv3.scene, review_body: rv3.body },
+      before: { review_id: rv3.id, reply: '' }, judgedAt: '', judgedBy: '', reason: '', synced: '', note: '' });
+  }
+  function demoReplyRequest(reviewId) {
+    var hit = null;
+    demoRequests.forEach(function (r) { if (r.kind === '返信' && r.after && r.after.review_id === reviewId && !hit) { hit = r; } }); // 新しい順に並んでいる
+    return hit;
+  }
+  function demoReviewsFor(storeId) {
+    demoInitReviews();
+    return demoReviews.filter(function (r) { return r.storeId === storeId; }).map(function (r) {
+      var q = demoReplyRequest(r.id);
+      var show = q && (q.state === REQ_STATE.PENDING || q.state === REQ_STATE.REJECTED);
+      return { id: r.id, date: r.date, industry: r.industry, scene: r.scene, body: r.body, contactOk: r.contactOk, orderNumber: r.orderNumber,
+        reply: r.reply ? { body: r.reply.body, at: r.reply.at } : null,
+        request: show ? { id: q.id, state: q.state, at: q.at, judgedAt: q.judgedAt, reason: q.reason, reply: q.after.reply } : null };
+    });
+  }
+  function demoReviewsInfo(storeId) {
+    demoInitReviews();
+    var since = jstDate(-7).replace(/-/g, '/');
+    var mine = demoReviews.filter(function (r) { return r.storeId === storeId; });
+    return { ready: true, recent: mine.filter(function (r) { return r.date >= since; }).length, days: 7,
+      pending: mine.filter(function (r) { var q = demoReplyRequest(r.id); return q && q.state === REQ_STATE.PENDING; }).length };
+  }
+  function demoSubmitReply(body) {
+    demoInitReviews();
+    var sb = demoBook(body.storeId);
+    var rv = null;
+    demoReviews.forEach(function (r) { if (r.id === String(body.reviewId || '').toLowerCase() && r.storeId === sb.id) { rv = r; } });
+    if (!rv) { return { ok: false, error: { code: 'NOT_ALLOWED', message: 'この口コミには返信できません（このお店の公開ずみの口コミではありません）。' } }; }
+    var text = String((body.fields || {}).reply || '').replace(/\r\n?/g, '\n').trim();
+    if (!text) { return { ok: false, error: { code: 'BAD_INPUT', message: '返信を書いてください。' } }; }
+    if (text.length > 400) { return { ok: false, error: { code: 'BAD_INPUT', message: '返信は 400 字までです（いま ' + text.length + ' 字）。' } }; }
+    var q = demoReplyRequest(rv.id);
+    if (q && q.state === REQ_STATE.PENDING) { return demoDashboard(sb.id, 'この口コミへの返信は、すでに申請中です。取り下げてから、もう一度申請してください。'); }
+    var cur = rv.reply ? rv.reply.body : '';
+    if (cur === text) { return demoDashboard(sb.id, '変更がありません（いまの返信と同じです）。'); }
+    var title = '口コミ（' + rv.date + (rv.industry ? '・' + rv.industry : '') + '）への返信';
+    demoRequests.unshift({ id: 'RDEMO-' + (demoRequests.length + 1), at: jstNow(), storeId: sb.id, storeName: sb.name, kind: '返信', state: REQ_STATE.PENDING,
+      by: (body.name ? body.name + '（' + DEMO_EMAIL + '）' : DEMO_EMAIL), subject: title,
+      after: { review_id: rv.id, reply: text, title: title, review_date: rv.date, review_industry: rv.industry, review_scene: rv.scene, review_body: rv.body },
+      before: { review_id: rv.id, reply: cur }, judgedAt: '', judgedBy: '', reason: '', synced: '', note: '' });
+    return demoDashboard(sb.id, '申請しました。運営が確認します（見本の中だけ。本物では運営にメールが届きます）。');
+  }
   function demoLatestRequest(storeId) {
     var hit = null;
     demoRequests.forEach(function (r) { if (r.storeId === storeId && r.kind === 'お店の情報' && !hit) { hit = r; } });
@@ -3477,6 +3764,7 @@
       settings: b.settings, open: openStateOf(b.settings, today), ops: true, requestsReady: true, request: demoLatestRequest(b.id), products: demoProducts(b),
       productConfig: DEMO_PRODUCT_CONFIG, banners: DEMO_BANNERS,
       big: demoBigInfo(b), news: demoNewsFor(b.id), newsAll: demoNewsAll(), contacts: (b.contacts || []).slice(), contactMax: 10, contactRequest: demoLatestContact(b.id),
+      reviews: demoReviewsInfo(b.id),
       store: { id: b.id, name: b.name, address: b.settings.address, phone: b.settings.tel, bank: b.settings.bank }, canConfirm: true, logProblem: '', notice: notice || ''
     };
   }
@@ -3505,6 +3793,10 @@
         }
         if (action === 'bigReply') { demoInit(); return resolve(demoBigReply(body)); }
         if (action === 'postNews' || action === 'withdrawNews') { demoInit(); return resolve(demoNewsAction(body)); }
+        if (action === 'reviews') {
+          var rb2 = demoBook(body.storeId);
+          return resolve({ ok: true, ready: true, storeId: rb2.id, reviews: demoReviewsFor(rb2.id), max: 100, replyMax: 400, requestsReady: true });
+        }
         if (action === 'submitRequest' || action === 'withdrawRequest' || action === 'listRequests' || action === 'judgeRequest' || action === 'photo' || action === 'setProductStatus' || action === 'markSynced') {
           demoInit();
           if (action === 'setProductStatus') {
@@ -3548,6 +3840,7 @@
           if (action === 'submitRequest') {
             if (body.kind === 'product') { return resolve(demoSubmitProduct(body)); }
             if (body.kind === 'contact') { return resolve(demoSubmitContact(body)); }
+            if (body.kind === 'reply') { return resolve(demoSubmitReply(body)); }
             var sb = demoBook(body.storeId);
             var curReq = demoLatestRequest(sb.id);
             if (curReq && curReq.state === REQ_STATE.PENDING) { return resolve(demoDashboard(sb.id, 'すでに申請中のものがあります。取り下げてから、もう一度申請してください。')); }
@@ -3580,10 +3873,15 @@
               var tb = demoBook(target.storeId);
               if (target.kind === '商品') { demoApproveProduct(tb, target); }
               else if (target.kind === '通知先') { tb.contacts = String(target.after.emails || '').split('\n').filter(Boolean); target.synced = jstNow(); }
+              else if (target.kind === '返信') {
+                demoInitReviews();
+                demoReviews.forEach(function (r) { if (r.id === target.after.review_id) { r.reply = { body: target.after.reply, at: jstNow() }; } });
+              }
               else { Object.keys(target.after).forEach(function (k) { tb.settings[k] = target.after[k]; }); }
             }
             noticeJ = body.decision !== 'approve' ? '差し戻しました（見本の中だけ。本物ではお店にメールが届きます）。' :
-              (target.kind === '通知先' ? '承認しました（見本の中だけ。本物では マスタの通知先がすぐ書き換わり、足したメールに招待が届きます）。' :
+              (target.kind === '返信' ? '承認しました（見本の中だけ。本物ではお店にメールが届きます）。返信は お店の「口コミの返信」に入りました（受注サイトに出すのは、口コミを出す仕組みができてから）。' :
+              target.kind === '通知先' ? '承認しました（見本の中だけ。本物では マスタの通知先がすぐ書き換わり、足したメールに招待が届きます）。' :
                 '承認しました（見本の中だけ。本物ではお店にメールが届きます）。受注サイトへの反映は運営の手です。');
           }
           return resolve({ ok: true, ready: true, requests: demoRequests.slice(), pending: demoRequests.filter(function (r) { return r.state === REQ_STATE.PENDING; }).length, notice: noticeJ });
