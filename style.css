@@ -2,6 +2,7 @@
  * style.css ── matchimo 店舗管理画面の見た目（v2・左の縦メニュー・帳票・売上・2026-10-03）
  * 🆕 v6（2026-10-05）：よし「食べログの管理画面に少し寄せたい」→ 左メニューは黒い背景（選んでいる所に橙の印・まとまりの区切り）・上の帯の下に黒い線・
  *    画面の上に広告枠（問いかけ → 色の帯の言い切り → 橙のボタン）。商品の写真の並び・オプションの欄・申請の結果の印
+ * 🆕 v8（2026-10-07）：口コミの箱（口コミ → お店の返信 → 書く欄）
  * 白と灰色を基調に、matchimo の紺を差し色に。書体は端末の標準。帳票は印刷用の決まりを末尾に。
  */
 :root {
@@ -397,6 +398,22 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .news-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; color: var(--muted); font-size: 12px; }
 .news-title { margin: 6px 0 4px; font-size: 15px; overflow-wrap: anywhere; }
 .news-body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.7; }
+/* 🆕 v8（2026-10-07）口コミ：お客さまの口コミ → お店の返信（左に線）→ 書く欄・申請の結果 */
+.review-list { display: flex; flex-direction: column; }
+.review-item { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-bottom: 1px solid var(--border); min-width: 0; }
+.review-item:last-child { border-bottom: 0; }
+.review-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; color: var(--muted); font-size: 12px; }
+.review-date { font-variant-numeric: tabular-nums; }
+.review-body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.8; }
+.review-order { margin: 0; color: var(--muted); font-size: 12px; }
+.review-reply { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 4px 0 4px 12px; border-left: 3px solid var(--border-strong); }
+.review-reply-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; }
+.review-reply-body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.7; }
+.review-reply .box { margin: 0; }
+.review-ta { width: 100%; min-height: 110px; padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: 6px; background: #fff; color: var(--text); font: inherit; font-size: 15px; resize: vertical; }
+.review-count { align-self: flex-end; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.review-actions { margin: 0; align-items: center; }
+#rvHint { margin: 0 0 14px; } /* 説明と一覧の間をあける（詰まって見えないように） */
 .field-label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
 #ctCurrent .chip { padding-right: 10px; overflow-wrap: anywhere; height: auto; min-height: 28px; }
 #ctList { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
