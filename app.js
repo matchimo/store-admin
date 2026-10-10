@@ -1,5 +1,15 @@
 /**
- * app.js ── matchimo 店舗管理画面の動き（v8・2026-10-07：口コミ＝運営が公開にした口コミを見て、返信を【申請する】→ 運営が【承認】・
+ * app.js ── matchimo 店舗管理画面の動き（v9・2026-10-09：性能の直し B（よし「AだけどBの方が良さそう」・10/09「（店舗管理画面は卒業のあとも）使えるならそのまま」）
+ *           ＝窓口 v12 と組む。一覧は直近（納品日が前々月の1日から先）＋お店が対応する注文だけ受け取り、古い月は「過去の注文」・帳票・売上で
+ *           月を選んだときに窓口に聞く（1回だけ・おぼえる）。注文は100件ずつ「もっと見る」・幅に合わせて表かカードの片方だけ作る・
+ *           探すは打ち終わって0.3秒後・5分の読み直しは見えている箱だけ（隠れた箱の重い中身は消す）。売上の「すべての期間」は月ごとの合計。
+ *           窓口が v11 以前なら、来た全部を画面で絞る（過去の注文は聞かない）。すべての依頼に page: 9 を付ける。
+ *           10/09 夕 確かめの指摘：窓口の印 range.oldUndelivered で「すべて」の一言と絞り方を出し分ける（印なし＝true）・「すべて」で探して0件なら
+ *           「過去の注文」へ案内・無い日（2月30日など）は窓口と同じく「読めない日」・別の端末で古い注文が変わったら、おぼえた月を忘れて聞き直す）
+ *           10/10 確かめの指摘：同じ注文番号の札が2つある古い月で5分ごとに聞き直さない（おぼえた月は札ごとに差し替え・押した注文だけ鍵で全部）・
+ *           売上「すべての期間」に「納品日が読めない注文」の行（上の数と表の合計を合わせる・CSV も）・古い注文の詳細は、返事から札が消えても
+ *           その月を聞いて開いたまま・「すべて」の説明を表の上に・探す字があって月を選んでいないときは「過去の注文」の数を「—」に
+ *   （v8・2026-10-07：口コミ＝運営が公開にした口コミを見て、返信を【申請する】→ 運営が【承認】・
  *           トップの「新しい口コミ」・運営の「申請」で返信の見比べ。窓口 v10 と組む。窓口が v9 以前なら、口コミの箱は「準備中」の一言）
  *   （v7・2026-10-05 夕：大口の【作れる】【作れない】（返事は24時間以内）・大口の締切・お知らせ（運営 → お店・画面だけ）・
  *           通知先の申請（設定）・トップの「大口の返事待ち」とお知らせ・充実度の行から箱へ。窓口 v9 と組む。窓口が v8 以前なら、前の形のまま動く）
@@ -30,8 +40,18 @@
   var INVITE_RE = /^[0-9a-f]{32,64}$/;
   var PASSWORD_MIN = 8;
   var WEEK = ['日', '月', '火', '水', '木', '金', '土'];
-  var TABS = [['unconfirmed', '未確認'], ['today', '今日'], ['tomorrow', '明日'], ['dayafter', '明後日'], ['all', 'すべて']];
+  var TABS = [['unconfirmed', '未確認'], ['today', '今日'], ['tomorrow', '明日'], ['dayafter', '明後日'], ['all', 'すべて'], ['past', '過去の注文']]; // 🆕 v9：過去の注文
   var KIND = { NEW: '新規', CHANGED: '変更', CANCELLED: 'キャンセル', TEST: 'テスト' };
+  var CURRENT = '最新'; // 受注一覧の「状態」（最新・キャンセル・旧）
+  // 🆕 10/09 性能の直し B（よし「AだけどBの方が良さそう」・10/09「使えるならそのまま」）：窓口 v12 と組む画面の版・1回に描く件数・探すの待ち・直近の幅
+  var PAGE_VERSION = 9;  // すべての依頼に page: 9（窓口 v12 は、これを見て一覧を直近だけにする。v11 以前は見ない）
+  var PAGE_SIZE = 100;   // 注文・売上の表は100件ずつ「もっと見る」
+  var SEARCH_WAIT = 300; // 探すは打ち終わって0.3秒後に描く（日本語の変換中は待つ）
+  var RANGE_BACK = 2;    // 直近＝納品日が前々月の1日から先（窓口 v12 の SA_DASH_MONTHS_BACK と同じ。古い窓口のときに画面で使う）
+  var OLD_WINDOW_TEXT = '過去の注文は、窓口の新しい版（v12）を入れると使えます（運営の作業を待っています）。【更新】を押すと、今の窓口の形で読み直します。';
+  // 表とカードの境目（style.css の @media (max-width: 760px) と同じ）。狭ければカードだけ・広ければ表だけ作る
+  var NARROW = null;
+  try { NARROW = window.matchMedia ? window.matchMedia('(max-width: 760px)') : null; } catch (e) { NARROW = null; }
   var BOXES = [
     ['requests', '申請', '📨'], ['home', 'トップ', '🏠'], ['orders', '注文', '📦'], ['docs', '帳票', '🖨'], ['sales', '売上', '📈'],
     ['store', 'お店の情報', '🏪'], ['hours', '営業の設定', '🗓'], ['products', '商品', '🍱'], ['reviews', '口コミ', '⭐'],
@@ -45,7 +65,10 @@
     storyDirty: false, photoFile: null, photos: {}, requests: null, pending: 0, requestsReady: true, reqFilter: 'pending', reqOpen: null, judge: null,
     prEdit: null, prDirty: false, prPhotos: [], prOptions: [], prResult: null, stResult: null, prLocked: false, prPending: false, pmodal: null,
     adIndex: 0, adTimer: null, adHold: false, bigCard: null, ctDirty: false, ctResult: null, newsArm: '',
-    reviews: null, rvStore: '', rvState: '', rvMax: 400, rvEdit: '', rvDraft: '', rvResult: null };
+    reviews: null, rvStore: '', rvState: '', rvMax: 400, rvEdit: '', rvDraft: '', rvResult: null,
+    // 🆕 v9：描いた件数・おぼえた月（orders の返事）・過去の注文で選んだ月・探すの待ち
+    limit: PAGE_SIZE, salesLimit: PAGE_SIZE, months: {}, monthGen: 0, pastMonth: '', searchTimer: null, composing: false, rowsList: null, salesList: null, fq: null, lm: null,
+    detailMonth: '' }; // 🆕 10/09 指摘5：開いている詳細の札の月を聞き直している間は、詳細を閉じずに待つ
 
   // ---------------------------------------------------------------------------
   // 小さな道具
@@ -159,6 +182,7 @@
 
   /** 窓口に頼む。いつも JSON が返る作り（返らなければ、つながらなかった扱い）。見本では窓口につながず、手元の見本データで答える。 */
   function callApi(body) {
+    body.page = PAGE_VERSION; // 🆕 v9：窓口 v12 に「画面 v9」と伝える（古い窓口は見ない）
     if (DEMO) { return demoApi(body); }
     return fetch('https://script.google.com/macros/s/' + S.api + '/exec', {
       method: 'POST',
@@ -170,6 +194,206 @@
     }).then(function (r) {
       if (!r.ok) { throw new Error('HTTP ' + r.status); }
       return r.json();
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // 🆕 v9 10/09 性能の直し B（よし「AだけどBの方が良さそう」・10/09「（店舗管理画面は卒業のあとも）使えるならそのまま」）
+  //   窓口 v12 の一覧（dashboard）＝直近（納品日が前々月の1日から先）＋お店が対応する注文（未確認・大口の返事待ち・
+  //   納品日が過ぎて納品済みにしていない・納品日が空や読めない）＋押した注文。古い月は、選んだときに orders で聞く（1回だけ・おぼえる）。
+  //   窓口が v11 以前（返事に version・range が無い）なら、来た全部を画面で絞る（orders は送らない）
+  // ---------------------------------------------------------------------------
+
+  /** 'yyyy-mm-dd' で、ある日付か（🆕 10/09 指摘4：窓口の saIsYmd_ と同じく暦まで見る＝2月30日・32日は「読めない日」。同じ字は1回だけ確かめる） */
+  var ymdSeen = {};
+  function isYmd(d) {
+    var s = d == null ? '' : String(d);
+    if (Object.prototype.hasOwnProperty.call(ymdSeen, s)) { return ymdSeen[s]; }
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    var ok = false;
+    if (m) {
+      var t = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+      ok = t.getUTCFullYear() === Number(m[1]) && t.getUTCMonth() + 1 === Number(m[2]) && t.getUTCDate() === Number(m[3]);
+    }
+    ymdSeen[s] = ok;
+    return ok;
+  }
+  /** 札の納品月 'yyyy-mm'（納品日が空・読めない・無い日なら ''＝どの月にも入れない。窓口 v12 の monthly・orders と同じ） */
+  function monthOf(c) { return isYmd(c.deliveryDate) ? c.deliveryDate.slice(0, 7) : ''; }
+  /** 同じ注文か（注文番号｜Shopify注文ID）。札の cardKey（行｜種別）とは別 */
+  function orderKey(c) { return String(c.orderNumber == null ? '' : c.orderNumber) + '|' + String(c.orderId == null ? '' : c.orderId); }
+  /** 窓口と同じ並び（納品日・時間帯・行の順。納品日が空なら最後） */
+  function cardOrder(a, b) {
+    var da = a.deliveryDate || '9999-99-99';
+    var db = b.deliveryDate || '9999-99-99';
+    if (da !== db) { return da < db ? -1 : 1; }
+    if (a.timeSlot !== b.timeSlot) { return a.timeSlot < b.timeSlot ? -1 : 1; }
+    return a.row - b.row;
+  }
+  /** 'yyyy-mm-dd' → 'yyyy年m月d日' */
+  function ymdPlain(d) { var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d || ''); return m ? (+m[1]) + '年' + (+m[2]) + '月' + (+m[3]) + '日' : (d || ''); }
+  /** その日から見た直近の始まり（日本時間の前々月の1日）＝窓口 v12 の saDashRange_ と同じ決まり */
+  function rangeFrom(today) {
+    var m = /^(\d{4})-(\d{2})/.exec(today || '') || /^(\d{4})-(\d{2})/.exec(jstDate(0));
+    var total = (+m[1]) * 12 + (+m[2] - 1) - RANGE_BACK;
+    var y = Math.floor(total / 12);
+    var month = y + '-' + ('0' + (total - y * 12 + 1)).slice(-2);
+    return { from: month + '-01', month: month, back: RANGE_BACK };
+  }
+  /** 窓口 v12 の形か（読み直すたびに見直す＝開いたまま窓口が変わっても追いつく） */
+  function recentMode() {
+    var d = S.data;
+    return !!(d && Number(d.version) >= 12 && d.range && isYmd(String(d.range.from || '')));
+  }
+  /** 直近の始まり：窓口 v12 は返事の range、古い窓口は画面で同じ決まりで作る（過去の注文のタブの月の一覧に使う） */
+  function rangeOf() {
+    if (recentMode()) { return { from: S.data.range.from, month: S.data.range.from.slice(0, 7), back: S.data.range.back }; }
+    return rangeFrom(S.data ? S.data.today : '');
+  }
+  /** 直近の一覧に入る札か（窓口 v12 の saDashKeep_ から「押した注文」を除いたもの）。「すべて」はこれで絞る＝押したあとの古い札は出さない。
+   *  oldUnd＝窓口の印（range.oldUndelivered＝SA_DASH_OLD_UNDELIVERED_CARDS）。false なら、古い「納品済みにしていない」札は直近に入れない（🆕 10/09 指摘2） */
+  function keepRecent(c, from, today, oldUnd) {
+    if (!isYmd(c.deliveryDate) || c.deliveryDate >= from) { return true; } // 直近・納品日が空や読めない（無い日も）
+    if (!c.confirmed || c.bigActive) { return true; }                      // 未確認・大口の返事待ち
+    return oldUnd !== false && c.state === CURRENT && !c.delivered && c.deliveryDate <= today; // 納品済みにしていない
+  }
+  /** 🆕 10/09 指摘2：窓口が古い「納品済みにしていない」注文も一覧に返すか（返事の range.oldUndelivered）。印が無い返事（古い v12）は true とみなす */
+  function oldUndelivered() {
+    return !(recentMode() && S.data.range.oldUndelivered === false);
+  }
+  /** 直近より前の月の「納品済みにしていない」件数の合計（monthly の waitDeliver。印 false のときの一言に使う） */
+  function oldWaitCount() {
+    var r = rangeOf();
+    return sum(((S.data.monthly && S.data.monthly.list) || []).filter(function (x) { return x.m < r.month; }), function (x) { return Number(x.waitDeliver) || 0; });
+  }
+
+  /** おぼえた月を全部忘れる（【更新】・お店の切り替え・ログアウト・窓口の形が変わったとき）。読んでいる途中の返事は捨てる */
+  function resetMonths() { S.months = {}; S.monthGen += 1; S.detailMonth = ''; }
+  /** 月を選び直したとき：読めなかった月は、もう一度聞く */
+  function retryMonth(m) { var hit = S.months[m]; if (hit && (hit.state === 'error' || hit.state === 'old')) { delete S.months[m]; } }
+  /** その月の札を見る（聞かない）。古い窓口は手元の札を絞る。 @return {{state: 'ok'|'loading'|'error'|'old', cards: Array, message?: string}|null} */
+  function peekMonth(m) {
+    if (!recentMode()) { return { state: 'ok', cards: S.data.cards.filter(function (c) { return monthOf(c) === m; }) }; }
+    return S.months[m] || null;
+  }
+  /** その月の札（まだなら、ここで窓口に聞く＝1回だけ。返事が来たら描き直す） */
+  function monthData(m) {
+    var hit = peekMonth(m);
+    if (hit) { return hit; }
+    ensureMonth(m);
+    return S.months[m] || { state: 'loading', cards: [] };
+  }
+  function ensureMonth(m) {
+    if (!recentMode() || S.months[m] || !/^\d{4}-\d{2}$/.test(m || '')) { return; }
+    var gen = S.monthGen;
+    var sid = S.data.store.id;
+    S.months[m] = { state: 'loading', cards: [] };
+    callApi({ action: 'orders', token: S.token, storeId: sid, month: m }).then(function (res) {
+      if (gen !== S.monthGen || !S.data || S.data.store.id !== sid) { return; } // 読んでいる間に【更新】・お店の切り替え
+      if (res && res.ok && Array.isArray(res.cards)) {
+        S.months[m] = { state: 'ok', cards: res.cards.filter(function (c) { return monthOf(c) === m; }) };
+      } else {
+        var err = (res && res.error) || {};
+        if (err.code === 'LOGIN') { return logout(err.message); }
+        // BAD_REQUEST＝窓口が v11 以前（orders を知らない）。開いたまま窓口を戻したとき
+        S.months[m] = err.code === 'BAD_REQUEST' ? { state: 'old', cards: [] } : { state: 'error', cards: [], message: err.message || '' };
+      }
+      monthLoaded(m);
+    }, function () {
+      if (gen !== S.monthGen) { return; }
+      S.months[m] = { state: 'error', cards: [], message: '過去の注文を読めませんでした（通信）。電波のよいところで、もう一度月を選ぶか【更新】を押してください。' };
+      monthLoaded(m);
+    });
+  }
+  /** 月の返事が来たら、その月を見ている箱だけ描き直す */
+  function monthLoaded(m) {
+    if (!S.data || $('shell').hidden) { return; }
+    if (S.detailMonth === m) { // 🆕 10/09 指摘5：聞き直した月の札で、開いたままの詳細を描き直す（無くなっていれば閉じる）
+      S.detailMonth = '';
+      var dc = S.detailKey ? findCard(S.detailKey) : null;
+      if (dc) { renderDetail(dc); } else { closeDetail(); }
+    }
+    if (S.box === 'orders') {
+      renderTabs();
+      if (S.tab === 'past' && S.pastMonth === m) { renderRows(); }
+    } else if (S.box === 'docs' && String(S.docDate).slice(0, 7) === m) {
+      renderDocs();
+    } else if (S.box === 'sales' && S.salesMonth === m) {
+      renderSales();
+    }
+  }
+  /** 一覧の返事の札で、おぼえた月の札を新しくする（押した注文・要対応の札。もう1回 orders を聞かない）。
+   *  返事の札と同じ札（cardKey＝行｜種別）を外して、返事の札のうちその月のものを入れ、窓口と同じ順に並べ直す。
+   *  target＝押した注文の鍵（orderKey。確認・納品・大口の返事の返事のとき）：窓口はその注文の札を全部返すので、その鍵の札は全部入れ替える。
+   *  🆕 10/10（確かめの指摘）：前は返事の札の「注文の鍵」で全部外していた → 同じ注文番号の札が2つある注文（2回目のキャンセルの行・キャンセルのあとの変更）で、
+   *    片方（要対応）だけが返事に入ると、もう片方が消えて月の数が合わなくなり、5分ごとにその月を聞き直していた。行が動いて札の行番号が変わったときは、
+   *    数が合わなくなるので dropStaleMonths が1回だけ聞き直す */
+  function mergeMonths(cards, target) {
+    var ms = Object.keys(S.months).filter(function (m) { return S.months[m].state === 'ok'; });
+    if (!ms.length || !cards || !cards.length) { return; }
+    var keys = {};
+    var byMonth = {};
+    cards.forEach(function (c) {
+      keys[cardKey(c)] = true;
+      var m = monthOf(c);
+      if (m) { (byMonth[m] = byMonth[m] || []).push(c); }
+    });
+    ms.forEach(function (m) {
+      var old = S.months[m].cards;
+      var kept = old.filter(function (c) { return !keys[cardKey(c)] && !(target && orderKey(c) === target); });
+      var add = byMonth[m] || [];
+      if (kept.length === old.length && !add.length) { return; }
+      S.months[m] = { state: 'ok', cards: kept.concat(add).sort(cardOrder) };
+    });
+  }
+  /** 札から月ごとの合計を数える（窓口 v12 の saDashMonthly_ と同じ決まり：売上は状態「最新」で種別がテスト・キャンセルでない札・
+   *  waitDeliver＝状態「最新」・納品済みにしていない・納品日が今日以前）。月は monthOf（無い日・読めない日は all にだけ入る） */
+  var MONTH_FIELDS = ['cards', 'orders', 'meals', 'amount', 'dOrders', 'dMeals', 'dAmount', 'waitDeliver'];
+  function monthTally(cards, today) {
+    var zero = function () { return { cards: 0, orders: 0, meals: 0, amount: 0, dOrders: 0, dMeals: 0, dAmount: 0, waitDeliver: 0 }; };
+    var add = function (t, c) {
+      var sale = c.state === CURRENT && c.kind !== KIND.TEST && c.kind !== KIND.CANCELLED;
+      var q = Number(c.qty) || 0;
+      var a = Number(c.total) || 0;
+      t.cards++;
+      if (sale) {
+        t.orders++; t.meals += q; t.amount += a;
+        if (c.delivered) { t.dOrders++; t.dMeals += q; t.dAmount += a; }
+      }
+      if (c.state === CURRENT && !c.delivered && isYmd(c.deliveryDate) && c.deliveryDate <= today) { t.waitDeliver++; }
+    };
+    var by = {};
+    var all = zero();
+    cards.forEach(function (c) {
+      add(all, c);
+      var m = monthOf(c);
+      if (m) { add(by[m] = by[m] || zero(), c); }
+    });
+    return { by: by, all: all };
+  }
+  /** 🆕 10/09 指摘5：おぼえた月が古くなっていないか（一覧を読み直すたびに。mergeMonths のあと）。古ければ忘れる（delete）＝
+   *  見ている箱だけが描くときに聞き直す（隠れた箱は、開いたときに聞く）。古いとみなすのは次の2つ：
+   *   ① 窓口がいつも一覧に返す札（未確認・大口の返事待ち・印 true なら納品済みにしていない）なのに、今の返事に無い＝別の端末で確認・納品済みにした
+   *      （🆕 10/10：札ごと＝cardKey で見る。同じ注文番号の札が2つあって片方だけが返事にあっても、もう片方の変化に気づく）
+   *   ② 窓口の monthly のその月（札の数・売上・納品済み・納品済みにしていない）と、おぼえた札から数えた値が違う
+   *  聞き直した月は、次の読み直しでは数が合う（同じ月を何度も聞き直さない） */
+  function dropStaleMonths(cards) {
+    if (!recentMode() || !S.data.monthly || !Array.isArray(S.data.monthly.list)) { return; }
+    var r = rangeOf();
+    var today = S.data.today;
+    var und = oldUndelivered();
+    var keys = {};
+    (cards || []).forEach(function (c) { keys[cardKey(c)] = true; });
+    Object.keys(S.months).forEach(function (m) {
+      var hit = S.months[m];
+      if (!hit || hit.state !== 'ok') { return; } // 読み込み中・読めなかった月はそのまま（選び直すと聞く）
+      var gone = hit.cards.some(function (c) { return !keys[cardKey(c)] && keepRecent(c, r.from, today, und); });
+      var want = monthlyOf(m);
+      var have = monthTally(hit.cards, today).by[m] || {};
+      var differ = MONTH_FIELDS.some(function (f) { return Math.abs((Number(want[f]) || 0) - (Number(have[f]) || 0)) > 0.005; });
+      if (!gone && !differ) { return; }
+      if (S.detailKey && hit.cards.some(function (c) { return cardKey(c) === S.detailKey; })) { S.detailMonth = m; } // 開いている詳細の札の月
+      delete S.months[m];
     });
   }
 
@@ -226,6 +450,8 @@
     S.storeId = '';
     S.tab = '';
     S.box = '';
+    resetMonths(); // 🆕 v9
+    S.pastMonth = '';
     remember(STORE.token, '');
     remember(STORE.store, '');
     showLogin(msg || '');
@@ -450,7 +676,8 @@
   }
 
   // keepOnError＝確認したとき・5分ごとの読み直し。うまくいかなくても、今の表は残して一言だけ出す
-  function render(res, keepOnError) {
+  // target＝押した注文の鍵（orderKey。確認・納品・大口の返事の返事のとき）＝おぼえた月の、その注文の札を全部入れ替える（mergeMonths）
+  function render(res, keepOnError, target) {
     if (!res) { return showMessage('注文を表示できませんでした', 'もう一度読み込んでください。', true); }
     if (res.error) {
       if (res.error.code === 'LOGIN') { return logout(res.error.message); }
@@ -462,7 +689,20 @@
       if (keepOnError && S.data) { return showNotice(res.error.message, true); }
       return showMessage('注文を表示できませんでした', res.error.message, true);
     }
+    // 🆕 v9：おぼえた月（過去の注文）は、お店が変わった・窓口の形が変わった（v12 ⇔ v11）ときは忘れる。
+    //   それ以外は、返事の札（押した注文・要対応の札）で同じ注文の札を差し替える（もう1回 orders を聞かない）
+    var prevStore = (S.data && S.data.store) ? S.data.store.id : '';
+    var wasRecent = recentMode();
+    var keepY = (prevStore === res.store.id && !$('shell').hidden) ? (window.pageYOffset || 0) : -1; // 5分の読み直し・確認のあと：スクロールの位置を保つ
+    var prevDetail = (S.detailKey && S.data && prevStore === res.store.id) ? findCard(S.detailKey) : null; // 🆕 10/10：開いている詳細の札（前の返事・おぼえた月から）
     S.data = res;
+    if (prevStore !== res.store.id || wasRecent !== recentMode()) {
+      resetMonths();
+      if (prevStore && prevStore !== res.store.id) { S.pastMonth = ''; S.limit = PAGE_SIZE; S.salesLimit = PAGE_SIZE; }
+    } else {
+      mergeMonths(res.cards, target || '');
+      dropStaleMonths(res.cards); // 🆕 10/09 指摘5：別の端末で古い注文が変わった月は忘れる（見ている箱だけ聞き直す）
+    }
     S.storeId = res.store.id;
     if (res.ops && S.requests === null) { fetchRequests(); } // 運営：申請の数を左メニューに
     remember(STORE.store, S.storeId);
@@ -479,15 +719,29 @@
     if (!S.box || !boxOk(S.box)) { S.box = DEMO ? 'home' : 'orders'; }
     showBox(S.box); // 詳細を開いたまま読み直す（確認・納品済みのあと）
     writeHash();
+    if (keepY > 0 && Math.abs((window.pageYOffset || 0) - keepY) > 1) { try { window.scrollTo(0, keepY); } catch (e) { /* 何もしない */ } }
     if (S.detailKey) {
       var c = findCard(S.detailKey);
-      if (c) { renderDetail(c); } else { closeDetail(); }
+      // 🆕 10/10（確かめの指摘）：返事に札が無くなった（古い注文を納品済みにした・別の端末で確認された＝要対応でなくなった）が、前に見ていた札が直近より前の月なら、
+      //   すぐ閉じずにその月を聞いて（1回だけ・おぼえる）、その札で描き直す（電話をかけながら見ている詳細が、5分で勝手に閉じない）
+      if (!c && prevDetail && recentMode()) {
+        var pm0 = monthOf(prevDetail);
+        if (pm0 && pm0 < rangeOf().month) { ensureMonth(pm0); S.detailMonth = pm0; }
+      }
+      var waiting = !!S.detailMonth && !!S.months[S.detailMonth] && S.months[S.detailMonth].state === 'loading'; // 🆕 10/09 指摘5：その月を聞き直している間は待つ
+      if (c) { renderDetail(c); } else if (!waiting) { closeDetail(); }
+      if (!waiting) { S.detailMonth = ''; }
     }
   }
 
+  /** 札を探す（一覧の札 → 🆕 v9 おぼえた月の札の順）。 */
   function findCard(key) {
-    var list = S.data ? S.data.cards : [];
-    for (var i = 0; i < list.length; i++) { if (cardKey(list[i]) === key) { return list[i]; } }
+    var lists = [S.data ? S.data.cards : []];
+    Object.keys(S.months).forEach(function (m) { if (S.months[m].state === 'ok') { lists.push(S.months[m].cards); } });
+    for (var j = 0; j < lists.length; j++) {
+      var list = lists[j];
+      for (var i = 0; i < list.length; i++) { if (cardKey(list[i]) === key) { return list[i]; } }
+    }
     return null;
   }
 
@@ -584,10 +838,17 @@
     }
   }
 
+  // 🆕 v9：隠れた箱の重い中身（注文の表・カード、帳票、売上の表）は消す。戻ったら描き直す（5分の読み直しで描くのは見えている箱だけ）
+  var HEAVY = { orders: ['rows', 'list'], docs: ['docOrders', 'printArea'], sales: ['salesRows', 'salesMonthRows'] };
   /** 箱を見せて中身を描く（詳細は閉じない）。 */
   function showBox(id) {
     S.box = id;
     BOXES.forEach(function (b) { $('box-' + b[0]).hidden = (b[0] !== id); });
+    Object.keys(HEAVY).forEach(function (b) {
+      if (b !== id) { HEAVY[b].forEach(function (x) { if ($(x).firstChild) { clear($(x)); } }); }
+    });
+    if (id !== 'orders') { S.rowsList = null; }
+    if (id !== 'sales') { S.salesList = null; }
     renderNav();
     renderBox(id);
   }
@@ -786,7 +1047,7 @@
   // ---------------------------------------------------------------------------
 
   function renderOrders() {
-    $('orderSearch').value = S.query;
+    if (!S.searchTimer && !S.composing) { $('orderSearch').value = S.query; } // 打ちかけの字は消さない（5分の読み直しのとき）
     renderStats();
     renderTabs();
     renderRows();
@@ -826,6 +1087,8 @@
   }
 
   function setTab(tab) {
+    takeSearch(); // 🆕 v9：打ちかけの字は、いま効かせる
+    if (S.tab !== tab) { S.limit = PAGE_SIZE; }
     S.tab = tab;
     renderStats();
     renderTabs();
@@ -833,30 +1096,110 @@
   }
 
   /** 探す：注文番号・会社名・部署・担当者・ふりがな・電話・明細のどれかに、入れた字が含まれる札だけ。 */
-  function matchesQuery(c) {
+  function byQuery(list) {
     var q = S.query.trim().toLowerCase();
-    if (!q) { return true; }
-    var hay = [c.orderNumber, c.company, c.department, c.orderer, c.kana, c.phone, c.items].join(' ').toLowerCase();
-    return hay.indexOf(q) !== -1;
+    if (!q) { return list; }
+    return list.filter(function (c) { return [c.orderNumber, c.company, c.department, c.orderer, c.kana, c.phone, c.items].join(' ').toLowerCase().indexOf(q) !== -1; });
+  }
+  /** 一覧の札を探すで絞ったもの（🆕 v9：同じ返事・同じ字なら1回だけ絞る＝タブの数を数えるたびに絞り直さない） */
+  function queryCards() {
+    if (!S.fq || S.fq.data !== S.data || S.fq.q !== S.query) { S.fq = { data: S.data, q: S.query, list: byQuery(S.data.cards) }; }
+    return S.fq.list;
   }
 
   function listFor(tab) {
     var d = S.data;
-    var cards = d.cards.filter(matchesQuery);
+    if (tab === 'past') {
+      // 🆕 v9：過去の注文＝選んだ月の札（新しい日から＝「すべて」の過去の部分と同じ向き）
+      var pm = S.pastMonth ? peekMonth(S.pastMonth) : null;
+      return (pm && pm.state === 'ok') ? byQuery(pm.cards).slice().reverse() : [];
+    }
+    var cards = queryCards();
     if (tab === 'unconfirmed') { return cards.filter(function (c) { return !c.confirmed; }); }
     if (tab === 'today') { return cards.filter(function (c) { return c.deliveryDate === d.today; }); }
     if (tab === 'tomorrow') { return cards.filter(function (c) { return c.deliveryDate === d.tomorrow; }); }
     if (tab === 'dayafter') { return cards.filter(function (c) { return c.deliveryDate === d.dayAfter; }); }
+    if (recentMode()) {
+      // 🆕 v9：押したあとの返事に入る古い札（押した注文）は「すべて」に出さない（その月は「過去の注文」に出る）
+      var r = rangeOf();
+      var und = oldUndelivered(); // 🆕 10/09 指摘2：窓口の印 false なら、古い「納品済みにしていない」札（押した注文）も出さない
+      cards = cards.filter(function (c) { return keepRecent(c, r.from, d.today, und); });
+    }
     var future = cards.filter(function (c) { return !c.deliveryDate || c.deliveryDate >= d.today; });
     var past = cards.filter(function (c) { return c.deliveryDate && c.deliveryDate < d.today; }).reverse();
     return future.concat(past);
   }
 
+  /** 🆕 v9：過去の注文のタブで選べる月（直近の始まりより前で札がある月・新しい月から）。窓口 v12 は monthly、古い窓口は手元の札から同じ形で数える */
+  function pastMonths() {
+    var r = rangeOf();
+    var list = recentMode() ? ((S.data.monthly && S.data.monthly.list) || []) : localMonthly();
+    return list.filter(function (x) { return x.m < r.month && x.cards > 0; });
+  }
+  function localMonthly() {
+    if (S.lm && S.lm.data === S.data) { return S.lm.list; }
+    var by = {};
+    var today = S.data.today;
+    S.data.cards.forEach(function (c) {
+      var m = monthOf(c);
+      if (!m) { return; }
+      var t = by[m] || (by[m] = { m: m, cards: 0, waitDeliver: 0 });
+      t.cards++;
+      if (c.state === CURRENT && !c.delivered && c.deliveryDate <= today) { t.waitDeliver++; }
+    });
+    var list = Object.keys(by).sort().reverse().map(function (m) { return by[m]; });
+    S.lm = { data: S.data, list: list };
+    return list;
+  }
+  /** 過去の注文のタブの数：読んだ月はその月の件数（探すも効く）・まだなら monthly の件数（月を選んでいなければ過去の全部）。
+   *  🆕 10/10（確かめの指摘）：探す字があって、その月の札がまだ手元に無いときは数えられない →「—」（月を選ぶと、その月の中から探す）。
+   *  古い窓口（全部が手元にある）なら、過去の月の札から探した数 */
+  function pastCount() {
+    var pm = S.pastMonth ? peekMonth(S.pastMonth) : null;
+    if (pm && pm.state === 'ok') { return listFor('past').length; }
+    if (S.query.trim()) {
+      if (recentMode()) { return '—'; }
+      var rm = rangeOf().month;
+      return byQuery(S.data.cards).filter(function (c) { var m = monthOf(c); return m && m < rm; }).length;
+    }
+    var months = pastMonths();
+    if (S.pastMonth) {
+      for (var i = 0; i < months.length; i++) { if (months[i].m === S.pastMonth) { return months[i].cards; } }
+      return 0;
+    }
+    return sum(months, function (x) { return x.cards; });
+  }
+  function renderPastBar() {
+    var bar = $('pastBar');
+    bar.hidden = S.tab !== 'past';
+    if (bar.hidden) { return; }
+    var months = pastMonths();
+    if (S.pastMonth && !months.some(function (x) { return x.m === S.pastMonth; })) { S.pastMonth = ''; }
+    var opts = [['', '（月を選ぶ）']].concat(months.map(function (x) {
+      return [x.m, monthLabel(x.m) + '（' + x.cards + '件）' + (x.waitDeliver ? '・納品済みにしていない ' + x.waitDeliver + '件' : '')];
+    }));
+    var sig = opts.map(function (o) { return o.join('='); }).join('|');
+    var sel = $('pastMonth');
+    if (sel.getAttribute('data-sig') !== sig) { // 選べる月が変わったときだけ作り直す（読み直しのたびに選び途中を消さない）
+      clear(sel);
+      opts.forEach(function (o) { var op = el('option', '', o[1]); op.value = o[0]; sel.appendChild(op); });
+      sel.setAttribute('data-sig', sig);
+    }
+    sel.value = S.pastMonth;
+  }
+  $('pastMonth').addEventListener('change', function (ev) {
+    S.pastMonth = ev.target.value;
+    S.limit = PAGE_SIZE;
+    retryMonth(S.pastMonth);
+    renderTabs();
+    renderRows();
+  });
+
   function renderTabs() {
     var nav = clear($('tabs'));
     nav.setAttribute('role', 'tablist');
     TABS.forEach(function (t) {
-      var n = listFor(t[0]).length;
+      var n = t[0] === 'past' ? pastCount() : listFor(t[0]).length;
       var b = el('button', 'tab' + (t[0] === 'unconfirmed' && n > 0 ? ' has-alert' : ''));
       b.type = 'button';
       b.setAttribute('role', 'tab');
@@ -868,11 +1211,32 @@
     });
   }
 
-  $('orderSearch').addEventListener('input', function (ev) {
-    S.query = ev.target.value;
-    renderTabs();
-    renderRows();
+  // 🆕 v9：探すは打ち終わって0.3秒後に描く（1文字ごとに全部を描き直さない）。日本語の変換中は待つ。Enter と消す（×）は待たずにすぐ
+  /** 打ちかけの字を S.query に入れる（描かない）。変わったら true */
+  function takeSearch() {
+    if (S.searchTimer) { clearTimeout(S.searchTimer); S.searchTimer = null; }
+    if (S.composing) { return false; }
+    var v = $('orderSearch').value;
+    if (v === S.query) { return false; }
+    S.query = v;
+    S.limit = PAGE_SIZE;
+    return true;
+  }
+  function applySearch() {
+    if (takeSearch() && S.data && S.box === 'orders') { renderTabs(); renderRows(); }
+  }
+  function waitSearch() {
+    if (S.searchTimer) { clearTimeout(S.searchTimer); }
+    S.searchTimer = setTimeout(applySearch, SEARCH_WAIT);
+  }
+  $('orderSearch').addEventListener('input', function () { if (!S.composing) { waitSearch(); } });
+  $('orderSearch').addEventListener('compositionstart', function () {
+    S.composing = true;
+    if (S.searchTimer) { clearTimeout(S.searchTimer); S.searchTimer = null; }
   });
+  $('orderSearch').addEventListener('compositionend', function () { S.composing = false; waitSearch(); });
+  $('orderSearch').addEventListener('keydown', function (ev) { if (ev.key === 'Enter' && !ev.isComposing && ev.keyCode !== 229) { applySearch(); } });
+  $('orderSearch').addEventListener('search', function () { applySearch(); });
 
   // --- 状態の印 ---
   function statusBadge(c) {
@@ -911,23 +1275,85 @@
     return !!c.confirmed && c.want !== KIND.CANCELLED && !!S.data.canConfirm && (!c.deliveryDate || c.deliveryDate <= S.data.today);
   }
 
+  /** 🆕 v9：表（広い画面）とカード（狭い画面）の片方だけ作る。matchMedia が無い古いブラウザは両方（今までどおり・CSS で片方を隠す） */
+  function rowMode() { return NARROW ? (NARROW.matches ? 'list' : 'table') : 'both'; }
   function renderRows() {
+    if (!S.data || S.box !== 'orders') { return; } // 🆕 v9：隠れているときは描かない（戻ったときに描く）
+    renderPastBar();
+    var pst = (S.tab === 'past' && S.pastMonth) ? monthData(S.pastMonth) : null; // まだなら、ここで1回だけ窓口に聞く
     var list = listFor(S.tab);
-    var tbody = clear($('rows'));
+    S.rowsList = list;
+    clear($('rows'));
     var mobile = clear($('list'));
     var empty = $('empty');
+    var note = $('rangeNote');
+    note.hidden = !(S.tab === 'all' && recentMode());
+    if (!note.hidden) { note.textContent = rangeNoteText(); }
     $('table').hidden = list.length === 0;
     mobile.hidden = list.length === 0;
     empty.hidden = list.length > 0;
     if (list.length === 0) {
-      empty.textContent = S.query ? '「' + S.query + '」に当てはまる注文はありません。' :
-        (S.tab === 'unconfirmed' ? '未確認の注文はありません。' : (S.tab === 'all' ? '注文はありません。' : 'この日の注文はありません。'));
+      empty.textContent = emptyText(pst);
+      moreButton(0);
       return;
     }
-    list.forEach(function (c) {
-      tbody.appendChild(tableRow(c));
-      mobile.appendChild(listItem(c));
-    });
+    var n = Math.min(S.limit, list.length); // 100件ずつ（もっと見るで足した分・5分の読み直しと確認のあとは保つ）
+    appendRows(list, 0, n);
+    moreButton(list.length - n);
+  }
+  /** 「すべて」の下の一言（🆕 10/09 指摘2：窓口の印 range.oldUndelivered で出し分ける。印が無い返事は true とみなす） */
+  function rangeNoteText() {
+    var from = ymdPlain(rangeOf().from);
+    if (oldUndelivered()) { return from + 'より前の注文は「過去の注文」で月を選ぶと出ます（未確認・納品済みにしていない注文は、ここにも出ます）。'; }
+    var n = oldWaitCount();
+    return from + 'より前の注文は「過去の注文」で月を選ぶと出ます（未確認の注文は、ここにも出ます）。' +
+      (n > 0 ? from + 'より前の、納品済みにしていない注文 ' + n + '件は「過去の注文」で月を選んでください（月の一覧に件数が出ます）。' : '');
+  }
+  function emptyText(pst) {
+    if (S.tab === 'all' && S.query && recentMode()) { // 🆕 10/09 指摘3：直近より前の注文は、ここに無い（「過去の注文」で探す）
+      return '直近（' + ymdPlain(rangeOf().from) + 'から）には、「' + S.query + '」に当てはまる注文はありません。それより前の注文は「過去の注文」で月を選んで探してください。';
+    }
+    if (S.tab === 'past') {
+      if (!S.pastMonth) {
+        if (!pastMonths().length) { return ymdPlain(rangeOf().from) + 'より前の注文はありません。'; }
+        return S.query.trim() ? '上の「過去の注文」で月を選ぶと、その月の中から「' + S.query + '」を探します。' : '上の「過去の注文」で月を選ぶと、その月の注文が出ます。'; // 🆕 10/10
+      }
+      if (pst && pst.state === 'loading') { return '読み込み中…'; }
+      if (pst && pst.state === 'old') { return OLD_WINDOW_TEXT; }
+      if (pst && pst.state === 'error') { return pst.message || '過去の注文を読めませんでした。【更新】を押してください。'; }
+    }
+    return S.query ? '「' + S.query + '」に当てはまる注文はありません。' :
+      (S.tab === 'unconfirmed' ? '未確認の注文はありません。' : (S.tab === 'all' ? '注文はありません。' : (S.tab === 'past' ? 'この月の注文はありません。' : 'この日の注文はありません。')));
+  }
+  /** list の from〜to 件目を、表かカードの末尾に足す（作り直さない） */
+  function appendRows(list, from, to) {
+    var mode = rowMode();
+    var ft = document.createDocumentFragment();
+    var fl = document.createDocumentFragment();
+    for (var i = from; i < to; i++) {
+      if (mode !== 'list') { ft.appendChild(tableRow(list[i])); }
+      if (mode !== 'table') { fl.appendChild(listItem(list[i])); }
+    }
+    $('rows').appendChild(ft);
+    $('list').appendChild(fl);
+  }
+  function moreButton(rest) {
+    var b = $('moreRows');
+    b.hidden = rest <= 0;
+    b.textContent = 'もっと見る（あと ' + rest + ' 件）';
+  }
+  $('moreRows').addEventListener('click', function () {
+    var list = S.rowsList || [];
+    var from = Math.min(S.limit, list.length);
+    S.limit = from + PAGE_SIZE;
+    var to = Math.min(S.limit, list.length);
+    appendRows(list, from, to);
+    moreButton(list.length - to);
+  });
+  // 幅が変わったら（スマホを横にした・窓を広げた）、注文の箱なら作り直す（古い Safari は addListener）
+  function onWidth() { if (S.data && S.box === 'orders' && !$('shell').hidden) { renderRows(); } }
+  if (NARROW) {
+    if (NARROW.addEventListener) { NARROW.addEventListener('change', onWidth); } else if (NARROW.addListener) { NARROW.addListener(onWidth); }
   }
 
   function tableRow(c) {
@@ -1193,7 +1619,7 @@
     }).then(function (res) {
       S.sending = false;
       busy(false);
-      render(res, true);
+      render(res, true, orderKey(c));
     }).catch(function () {
       S.sending = false;
       busy(false);
@@ -1236,7 +1662,7 @@
     callApi({ action: 'bigReply', token: S.token, storeId: S.data.store.id, orderId: c.orderId, orderNumber: c.orderNumber, answer: answer, name: S.name }).then(function (res) {
       S.sending = false;
       busy(false);
-      render(res, true);
+      render(res, true, orderKey(c));
     }).catch(function () {
       S.sending = false;
       busy(false);
@@ -1296,7 +1722,7 @@
     }).then(function (res) {
       S.sending = false;
       busy(false);
-      render(res, true);
+      render(res, true, orderKey(c));
     }).catch(function () {
       S.sending = false;
       busy(false);
@@ -1320,13 +1746,21 @@
   // 帳票（注文書・個数表・貼り札・納品書・請求書・領収書・CSV）
   // ---------------------------------------------------------------------------
 
+  /** 🆕 v9：帳票の札の出どころ。窓口 v12 で直近より前の日なら、その月を窓口に聞いた札（まだなら、ここで1回だけ聞く） */
+  function docSource() {
+    if (recentMode() && isYmd(S.docDate) && S.docDate < rangeOf().from) { return monthData(S.docDate.slice(0, 7)); }
+    return { state: 'ok', cards: S.data.cards };
+  }
   /** その日の、帳票に出せる札（旧は窓口が出さない。キャンセルは出さない。テストは選べるが既定で外す）。 */
   function docCandidates() {
-    return S.data.cards.filter(function (c) { return c.deliveryDate === S.docDate && c.want !== KIND.CANCELLED; });
+    var src = docSource();
+    if (src.state !== 'ok') { return []; }
+    return src.cards.filter(function (c) { return c.deliveryDate === S.docDate && c.want !== KIND.CANCELLED; });
   }
-  function docSelected() {
-    return docCandidates().filter(function (c) { return !S.docOff[cardKey(c)] && !(c.test && S.docOff[cardKey(c)] == null); });
+  function selectedOf(cands) {
+    return cands.filter(function (c) { return !S.docOff[cardKey(c)] && !(c.test && S.docOff[cardKey(c)] == null); });
   }
+  function docSelected() { return selectedOf(docCandidates()); }
 
   function renderDocs() {
     $('docDate').value = S.docDate;
@@ -1339,21 +1773,27 @@
       kinds.appendChild(b);
     });
     var box = clear($('docOrders'));
+    var src = docSource();
     var cands = docCandidates();
-    if (cands.length === 0) {
+    var sel = selectedOf(cands);
+    var on = {}; // 🆕 v9：選んだかは1回だけ数える（チェック1つごとに全部をなめない）
+    sel.forEach(function (c) { on[cardKey(c)] = true; });
+    if (src.state === 'loading') { box.appendChild(el('span', 'muted small', '読み込み中…')); }
+    else if (src.state === 'old') { box.appendChild(el('span', 'muted small', OLD_WINDOW_TEXT)); }
+    else if (src.state === 'error') { box.appendChild(el('span', 'muted small', src.message || '過去の注文を読めませんでした。【更新】を押してください。')); }
+    else if (cands.length === 0) {
       box.appendChild(el('span', 'muted small', 'この日の注文はありません。'));
     }
     cands.forEach(function (c) {
       var label = el('label', c.test ? 'is-test' : '');
       var cb = el('input');
       cb.type = 'checkbox';
-      cb.checked = docSelected().indexOf(c) !== -1;
+      cb.checked = !!on[cardKey(c)];
       cb.addEventListener('change', function () { S.docOff[cardKey(c)] = !cb.checked; renderDocs(); });
       label.appendChild(cb);
       label.appendChild(document.createTextNode('#' + c.orderNumber + ' ' + (customerText(c) || personText(c)) + ' ' + c.qty + '食' + (c.test ? '（テスト）' : '')));
       box.appendChild(label);
     });
-    var sel = docSelected();
     var isCsv = S.docKind === 'csv';
     $('docPrint').hidden = isCsv;
     $('docCsv').hidden = !isCsv || DEMO;
@@ -1375,7 +1815,9 @@
     else if (S.docKind === 'invoice') { sel.forEach(function (c) { area.appendChild(docInvoice(c)); }); }
     else if (S.docKind === 'receipt') { sel.forEach(function (c) { area.appendChild(docReceipt(c)); }); }
   }
-  $('docDate').addEventListener('change', function (ev) { if (ev.target.value) { S.docDate = ev.target.value; S.docOff = {}; renderDocs(); } });
+  $('docDate').addEventListener('change', function (ev) {
+    if (ev.target.value) { S.docDate = ev.target.value; S.docOff = {}; retryMonth(S.docDate.slice(0, 7)); renderDocs(); }
+  });
   $('docPrint').addEventListener('click', function () {
     if (docSelected().length === 0) { return showNotice('印刷する注文を選んでください。', true); }
     if (DEMO) { return showNotice('見本では印刷の画面は開きません。本物の画面では、ここでブラウザの印刷（PDF に保存）が開きます。', false); }
@@ -1660,27 +2102,68 @@
   // 売上（月ごと。テストとキャンセルは数えない）
   // ---------------------------------------------------------------------------
 
-  function salesCards() {
-    return S.data.cards.filter(function (c) { return c.want !== KIND.CANCELLED && !c.test; });
+  function salesCards(list) {
+    return (list || S.data.cards).filter(function (c) { return c.want !== KIND.CANCELLED && !c.test; });
   }
+  /** 納品月の選び方。🆕 v9：窓口 v12 は monthly の売上がある月（全部の行から数えたもの）＋今月 */
   function salesMonths() {
     var seen = {};
     var out = [];
-    salesCards().forEach(function (c) {
-      var m = (c.deliveryDate || '').slice(0, 7);
-      if (m && !seen[m]) { seen[m] = true; out.push(m); }
-    });
+    if (recentMode()) {
+      ((S.data.monthly && S.data.monthly.list) || []).forEach(function (x) { if (x.orders > 0 && !seen[x.m]) { seen[x.m] = true; out.push(x.m); } });
+    } else {
+      salesCards().forEach(function (c) {
+        var m = monthOf(c); // 🆕 10/09 指摘4：無い日（2月30日など）はどの月にも入れない（窓口 v12 の monthly と同じ）
+        if (m && !seen[m]) { seen[m] = true; out.push(m); }
+      });
+    }
     var cur = S.data.today.slice(0, 7);
     if (!seen[cur]) { out.push(cur); }
     out.sort();
     out.reverse();
     return out;
   }
-  function salesFor(month) {
-    var list = salesCards().filter(function (c) { return month === 'all' || (c.deliveryDate || '').slice(0, 7) === month; });
+  function salesFor(month, from) {
+    var list = salesCards(from).filter(function (c) { return month === 'all' || monthOf(c) === month; }); // 🆕 10/09 指摘4：月は monthOf（暦まで見る）
     list.sort(function (a, b) { return (b.deliveryDate || '') < (a.deliveryDate || '') ? -1 : ((b.deliveryDate || '') > (a.deliveryDate || '') ? 1 : 0); });
     return list;
   }
+  /** 🆕 v9：売上の表の札。窓口 v12 で直近より前の月は、その月を窓口に聞いた札（まだなら、ここで1回だけ聞く） */
+  function salesSource(month) {
+    if (recentMode() && month !== 'all' && month < rangeOf().month) {
+      var md0 = monthData(month);
+      return md0.state === 'ok' ? { state: 'ok', list: salesFor(month, md0.cards) } : md0;
+    }
+    return { state: 'ok', list: salesFor(month) };
+  }
+  /** 🆕 v9：窓口 v12 の月ごとの合計（その月の行・すべての期間は all。無ければ 0） */
+  function monthlyOf(month) {
+    var mo = (S.data && S.data.monthly) || {};
+    var zero = { m: month, cards: 0, orders: 0, meals: 0, amount: 0, dOrders: 0, dMeals: 0, dAmount: 0, waitDeliver: 0 };
+    if (month === 'all') { return mo.all || zero; }
+    var list = mo.list || [];
+    for (var i = 0; i < list.length; i++) { if (list[i].m === month) { return list[i]; } }
+    return zero;
+  }
+  function salesMonthList() { return ((S.data.monthly && S.data.monthly.list) || []).filter(function (x) { return x.orders > 0; }); }
+  /** 🆕 10/10（確かめの指摘）：すべての期間のうち、どの月にも入らない注文（納品日が空・読めない・無い日）＝monthly.all − 月ごとの合計。無ければ null。
+   *  窓口はこの注文を、いつも一覧に返す（注文の「すべて」に出る）。月ごとの表と CSV の終わりに1行足して、上の数と表の合計を合わせる */
+  var SALES_FIELDS = ['orders', 'meals', 'amount', 'dOrders', 'dMeals', 'dAmount'];
+  function salesUndated() {
+    var mo = (S.data && S.data.monthly) || {};
+    if (!mo.all) { return null; }
+    var out = { m: '' };
+    var any = false;
+    SALES_FIELDS.forEach(function (f) {
+      var v = (Number(mo.all[f]) || 0) - sum(mo.list || [], function (x) { return Number(x[f]) || 0; });
+      v = Math.round(v * 100) / 100; // 足す順の違いの小さなずれは0に
+      out[f] = v;
+      if (v !== 0) { any = true; }
+    });
+    return any ? out : null;
+  }
+  var UNDATED_LABEL = '納品日が読めない注文';
+  var UNDATED_NOTE = '納品日が空・読めない注文は、どの月にも入りません。注文の「すべて」に出ています（受注一覧の納品日を直すと、その月に入ります）。';
 
   function renderSales() {
     var sel = $('salesMonth');
@@ -1698,36 +2181,111 @@
     all.selected = (S.salesMonth === 'all');
     sel.appendChild(all);
 
-    var list = salesFor(S.salesMonth);
-    var delivered = list.filter(function (c) { return c.delivered; });
+    var recent = recentMode();
+    var byMonth = recent && S.salesMonth === 'all'; // 🆕 v9：すべての期間は月ごとの合計の表（全部の行を受け取らない）
+    $('salesCsv').textContent = byMonth ? '月ごとの合計の CSV' : 'この月の CSV';
+    var src = byMonth ? { state: 'ok', list: [] } : salesSource(S.salesMonth);
+    var list = src.state === 'ok' ? src.list : [];
+    var t;
+    if (recent) {
+      t = monthlyOf(S.salesMonth); // 上の3つの数は、窓口が全部の行から数えた月ごとの合計からすぐ出す（古い月も読むのを待たない）
+    } else {
+      var dl = list.filter(function (c) { return c.delivered; });
+      var qty = function (c) { return c.qty; };
+      var tot = function (c) { return c.total; };
+      t = { orders: list.length, meals: sum(list, qty), amount: sum(list, tot), dOrders: dl.length, dMeals: sum(dl, qty), dAmount: sum(dl, tot) };
+    }
     var box = clear($('salesStats'));
-    box.appendChild(staticStat('注文', [[list.length, '件']], '納品済み ' + delivered.length + '件'));
-    box.appendChild(staticStat('食数', [[num(sum(list, function (c) { return c.qty; })), '食']], '納品済み ' + num(sum(delivered, function (c) { return c.qty; })) + '食'));
-    box.appendChild(staticStat('金額', [[yen(sum(list, function (c) { return c.total; })), '']], '納品済み ' + yen(sum(delivered, function (c) { return c.total; }))));
+    box.appendChild(staticStat('注文', [[t.orders, '件']], '納品済み ' + t.dOrders + '件'));
+    box.appendChild(staticStat('食数', [[num(t.meals), '食']], '納品済み ' + num(t.dMeals) + '食'));
+    box.appendChild(staticStat('金額', [[yen(t.amount), '']], '納品済み ' + yen(t.dAmount)));
 
-    var tbody = clear($('salesRows'));
+    clear($('salesRows'));
+    var mrows = clear($('salesMonthRows'));
+    var empty = $('salesEmpty');
+    $('salesMonthsWrap').hidden = !byMonth;
+    if (byMonth) {
+      var ml = salesMonthList();
+      var und0 = salesUndated();
+      if (und0) { ml = ml.concat([und0]); }
+      $('salesTable').hidden = true;
+      salesMoreButton(0);
+      S.salesList = null;
+      empty.hidden = ml.length > 0;
+      empty.textContent = 'まだ売上はありません。';
+      $('salesMonthsTable').hidden = ml.length === 0;
+      ml.forEach(function (x) {
+        var tr = el('tr');
+        tr.tabIndex = 0;
+        tr.setAttribute('data-month', x.m);
+        var head = el('td', 'strong', x.m ? monthLabel(x.m) : UNDATED_LABEL);
+        if (!x.m) { head.appendChild(el('span', 'sub', '注文の「すべて」に出ます')); }
+        tr.appendChild(head);
+        tr.appendChild(el('td', 'num', num(x.orders) + ' 件'));
+        tr.appendChild(el('td', 'num', num(x.meals) + ' 食'));
+        tr.appendChild(el('td', 'num', yen(x.amount)));
+        var td = el('td', 'num', num(x.dOrders) + ' 件');
+        td.appendChild(el('span', 'sub', yen(x.dAmount)));
+        tr.appendChild(td);
+        var go = function () { if (x.m) { pickSalesMonth(x.m); } else { showNotice(UNDATED_NOTE, false); } };
+        tr.addEventListener('click', go);
+        tr.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { go(); } });
+        mrows.appendChild(tr);
+      });
+      return;
+    }
+    S.salesList = list;
     $('salesTable').hidden = list.length === 0;
-    $('salesEmpty').hidden = list.length > 0;
-    list.forEach(function (c) {
-      var tr = el('tr');
-      tr.tabIndex = 0;
-      tr.appendChild(el('td', '', md(c.deliveryDate)));
-      tr.appendChild(el('td', 'strong', c.orderNumber));
-      var td = el('td', '', customerText(c) || '—');
-      td.appendChild(el('span', 'sub', personText(c)));
-      tr.appendChild(td);
-      tr.appendChild(el('td', 'num', c.qty + ' 食'));
-      tr.appendChild(el('td', 'num', yen(c.total)));
-      var t1 = el('td');
-      t1.appendChild(c.confirmed ? el('span', 'badge badge-success', '確認済み') : el('span', 'badge badge-danger', '未確認'));
-      tr.appendChild(t1);
-      var t2 = el('td');
-      t2.appendChild(c.delivered ? el('span', 'badge badge-primary', '納品済み') : el('span', 'badge badge-gray', 'まだ'));
-      tr.appendChild(t2);
-      tr.addEventListener('click', function () { openDetail(c); });
-      tr.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { openDetail(c); } });
-      tbody.appendChild(tr);
-    });
+    empty.hidden = list.length > 0;
+    empty.textContent = src.state === 'loading' ? '読み込み中…' : (src.state === 'old' ? OLD_WINDOW_TEXT :
+      (src.state === 'error' ? (src.message || '過去の注文を読めませんでした。【更新】を押してください。') : 'この月の注文はありません。'));
+    var n = Math.min(S.salesLimit, list.length); // 🆕 v9：100件ずつ
+    appendSalesRows(list, 0, n);
+    salesMoreButton(list.length - n);
+  }
+  function appendSalesRows(list, from, to) {
+    var frag = document.createDocumentFragment();
+    for (var i = from; i < to; i++) { frag.appendChild(salesRow(list[i])); }
+    $('salesRows').appendChild(frag);
+  }
+  function salesRow(c) {
+    var tr = el('tr');
+    tr.tabIndex = 0;
+    tr.appendChild(el('td', '', md(c.deliveryDate)));
+    tr.appendChild(el('td', 'strong', c.orderNumber));
+    var td = el('td', '', customerText(c) || '—');
+    td.appendChild(el('span', 'sub', personText(c)));
+    tr.appendChild(td);
+    tr.appendChild(el('td', 'num', c.qty + ' 食'));
+    tr.appendChild(el('td', 'num', yen(c.total)));
+    var t1 = el('td');
+    t1.appendChild(c.confirmed ? el('span', 'badge badge-success', '確認済み') : el('span', 'badge badge-danger', '未確認'));
+    tr.appendChild(t1);
+    var t2 = el('td');
+    t2.appendChild(c.delivered ? el('span', 'badge badge-primary', '納品済み') : el('span', 'badge badge-gray', 'まだ'));
+    tr.appendChild(t2);
+    tr.addEventListener('click', function () { openDetail(c); });
+    tr.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { openDetail(c); } });
+    return tr;
+  }
+  function salesMoreButton(rest) {
+    var b = $('salesMore');
+    b.hidden = rest <= 0;
+    b.textContent = 'もっと見る（あと ' + rest + ' 件）';
+  }
+  $('salesMore').addEventListener('click', function () {
+    var list = S.salesList || [];
+    var from = Math.min(S.salesLimit, list.length);
+    S.salesLimit = from + PAGE_SIZE;
+    var to = Math.min(S.salesLimit, list.length);
+    appendSalesRows(list, from, to);
+    salesMoreButton(list.length - to);
+  });
+  function pickSalesMonth(m) {
+    S.salesMonth = m;
+    S.salesLimit = PAGE_SIZE;
+    retryMonth(m);
+    renderSales();
   }
   function staticStat(label, values, sub) {
     var b = el('div', 'stat is-static');
@@ -1741,9 +2299,26 @@
     b.appendChild(el('div', 'stat-sub', sub));
     return b;
   }
-  $('salesMonth').addEventListener('change', function (ev) { S.salesMonth = ev.target.value; renderSales(); });
+  $('salesMonth').addEventListener('change', function (ev) { pickSalesMonth(ev.target.value); });
+  // 🆕 v9：すべての期間（窓口 v12）は月ごとの合計の CSV
+  var MONTHLY_CSV_HEAD = ['納品月', '注文', '食数', '金額', '納品済みの注文', '納品済みの食数', '納品済みの金額'];
+  function monthlyCsv() {
+    var lines = [MONTHLY_CSV_HEAD.map(csvCell).join(',')];
+    salesMonthList().forEach(function (x) { lines.push([x.m, x.orders, x.meals, x.amount, x.dOrders, x.dMeals, x.dAmount].map(csvCell).join(',')); });
+    var und = salesUndated(); // 🆕 10/10：どの月にも入らない注文（上の数と合わせる）
+    if (und) { lines.push(['納品日が読めない', und.orders, und.meals, und.amount, und.dOrders, und.dMeals, und.dAmount].map(csvCell).join(',')); }
+    return '\uFEFF' + lines.join('\r\n') + '\r\n';
+  }
   $('salesCsv').addEventListener('click', function () {
-    var text = csvOf(salesFor(S.salesMonth));
+    var byMonth = recentMode() && S.salesMonth === 'all';
+    var text;
+    if (byMonth) {
+      text = monthlyCsv();
+    } else {
+      var src = salesSource(S.salesMonth);
+      if (src.state !== 'ok') { return showNotice(src.state === 'old' ? OLD_WINDOW_TEXT : 'この月の注文を読み込んでから、もう一度押してください。', true); }
+      text = csvOf(src.list);
+    }
     if (DEMO) {
       S.docKind = 'csv';
       setBox('docs', false);
@@ -1751,7 +2326,7 @@
       $('csvOut').hidden = false;
       return showNotice('見本では、帳票の箱に CSV の文字を出しました。コピーしてお使いください。', false);
     }
-    downloadText('matchimo_売上_' + (S.salesMonth === 'all' ? 'すべて' : S.salesMonth) + '.csv', text);
+    downloadText('matchimo_売上_' + (byMonth ? '月ごとの合計' : (S.salesMonth === 'all' ? 'すべて' : S.salesMonth)) + '.csv', text);
   });
 
   // ---------------------------------------------------------------------------
@@ -2287,14 +2862,22 @@
   // 上の帯・そのほか
   // ---------------------------------------------------------------------------
 
-  $('refresh').addEventListener('click', function () { load(S.storeId, false); });
+  // 🆕 v9：【更新】は、おぼえた月も忘れて読み直す（過去の注文で月を選んでいれば、その月も聞き直す）
+  $('refresh').addEventListener('click', function () { resetMonths(); load(S.storeId, false); });
   $('messageRetry').addEventListener('click', function () { if (S.token) { load(S.storeId, false); } else { location.reload(); } });
   $('noticeClose').addEventListener('click', function () { $('notice').hidden = true; });
-  $('storeSelect').addEventListener('change', function (ev) { S.tab = ''; S.docOff = {}; S.reviews = null; S.rvEdit = ''; S.rvResult = null; closeDetail(); load(ev.target.value, false); });
+  $('storeSelect').addEventListener('change', function (ev) {
+    S.tab = ''; S.docOff = {}; S.reviews = null; S.rvEdit = ''; S.rvResult = null;
+    resetMonths(); S.pastMonth = ''; S.limit = PAGE_SIZE; S.salesLimit = PAGE_SIZE; // 🆕 v9：おぼえた月・選んだ月を忘れる
+    closeDetail();
+    load(ev.target.value, false);
+  });
   $('logout').addEventListener('click', function () {
     if (window.confirm('ログアウトしますか？（次に開くときは、ログインID（メールアドレス）とパスワードが要ります）')) { logout(''); }
   });
   // 開いたままでも新しい注文が出るように、5分ごとに読み直す（画面が見えていて、ダイアログを開いていないときだけ）
+  //   🆕 v9：読み直すのは一覧（dashboard）だけ。描くのは見えている箱だけ・もっと見るの位置とスクロールは保つ。
+  //   おぼえた月は、一覧の返事と合わないとき（別の端末で古い注文が変わった＝dropStaleMonths）だけ忘れて、見ている箱が聞き直す
   setInterval(function () {
     if (document.visibilityState === 'visible' && $('modal').hidden && $('bmodal').hidden && $('dmodal').hidden && $('pmodal').hidden && $('jmodal').hidden && !S.sending && S.data && S.token) { load(S.storeId, true); }
   }, 5 * 60 * 1000);
@@ -3322,6 +3905,8 @@
   }
 
   var DEMO_EMAIL = 'demo@example.com';
+  // 🆕 10/09 指摘2：見本の窓口の印（窓口 v12 の SA_DASH_OLD_UNDELIVERED_CARDS と同じ。true＝古い「納品済みにしていない」注文も一覧に返す）
+  var DEMO_OLD_UNDELIVERED = true;
   var demoBooks = null;
   var demoRequests = null;
   var demoNews = null;
@@ -3453,6 +4038,14 @@
   function demoLines(spec) {
     return spec.map(function (l) { return { title: l[0], variant: l[3] || '', qty: l[1], price: l[2], subtotal: l[1] * l[2] }; });
   }
+  /** 🆕 v9：見本の古い注文の日付＝今日から何か月前の何日（月で数える＝いつ見ても直近（前々月の1日から）の外） */
+  function jstMonthDay(monthsAgo, dom) {
+    var t = jstDate(0);
+    var total = (+t.slice(0, 4)) * 12 + (+t.slice(5, 7) - 1) - monthsAgo;
+    var y = Math.floor(total / 12);
+    return y + '-' + ('0' + (total - y * 12 + 1)).slice(-2) + '-' + ('0' + dom).slice(-2);
+  }
+  function addDays(ymd, n) { return new Date(Date.parse(ymd + 'T00:00:00Z') + n * 24 * 60 * 60 * 1000).toISOString().slice(0, 10); }
   function demoCard(o, idx) {
     var lines = demoLines(o.lines);
     var qty = sum(lines, function (l) { return l.qty; });
@@ -3460,7 +4053,7 @@
     var kind = o.kind || KIND.NEW;
     var state = o.cancelled ? 'キャンセル' : '最新';
     var want = o.cancelled ? KIND.CANCELLED : kind;
-    var date = jstDate(o.day);
+    var date = o.monthsAgo ? jstMonthDay(o.monthsAgo, o.dom) : jstDate(o.day);
     var c = {
       row: idx + 2, orderNumber: o.number, orderId: '90000000' + o.number, kind: kind, state: state, want: want,
       label: want === KIND.CHANGED ? '変更を確認する' : (want === KIND.CANCELLED ? 'キャンセルを確認する' : (want === KIND.TEST ? '確認する（テスト）' : '確認する')),
@@ -3469,10 +4062,10 @@
       email: 'customer@example.com', address: o.address || '東京都品川区見本1-2-3 見本ビル 5F',
       items: lines.map(function (l) { return lineName(l) + ' × ' + l.qty; }).join('／'), qty: qty, total: total,
       billing: o.billing || '請求書払い（銀行振込）', deliveryNote: o.deliveryNote || '', note: o.note || '',
-      writtenAt: jstDate(o.day - 3).replace(/-/g, '/') + ' 10:12', confirmed: null, delivered: null, lines: lines,
+      writtenAt: addDays(date, -3).replace(/-/g, '/') + ' 10:12', confirmed: null, delivered: null, lines: lines,
       big: qty >= 200, test: kind === KIND.TEST, before: null
     };
-    if (o.confirmed) { c.confirmed = { at: jstDate(o.day - 2).replace(/-/g, '/') + ' 09:30', by: '山田（' + DEMO_EMAIL + '）', source: 'sheet' }; }
+    if (o.confirmed) { c.confirmed = { at: addDays(date, -2).replace(/-/g, '/') + ' 09:30', by: '山田（' + DEMO_EMAIL + '）', source: 'sheet' }; }
     if (o.bigReply) { c.bigReply = o.bigReply; }
     if (o.delivered) { c.delivered = { at: date.replace(/-/g, '/') + ' 12:05', by: '山田（' + DEMO_EMAIL + '）' }; }
     if (o.before) {
@@ -3527,12 +4120,18 @@
         { number: '1111', day: 2, slot: '11:00-12:00', company: '見本保険株式会社', dept: '企画部', orderer: '見本 七子', lines: [toku(30), bento(10)] },
         { number: '1112', day: 7, company: '株式会社見本商事', dept: '総務部', orderer: '見本 太郎', lines: [bento(60)] },
         { number: '1113', day: 9, slot: '11:00-12:00', company: '見本市 実行委員会', orderer: '見本 十一郎', lines: [bento(300)], confirmed: true,
-          bigReply: { state: '作れる', at: jstDate(-1).replace(/-/g, '/') + ' 09:40', by: '山田（' + DEMO_EMAIL + '）', mail: '送った ' + jstDate(-1).replace(/-/g, '/') + ' 09:40' } }
+          bigReply: { state: '作れる', at: jstDate(-1).replace(/-/g, '/') + ' 09:40', by: '山田（' + DEMO_EMAIL + '）', mail: '送った ' + jstDate(-1).replace(/-/g, '/') + ' 09:40' } },
+        // 🆕 v9：古い月の見本（過去の注文・帳票の古い日・売上の古い月）。1003 は納品済みにしていない＝一覧にも出る（要対応）
+        { number: '1001', monthsAgo: 4, dom: 15, company: '株式会社見本商事', dept: '総務部', orderer: '見本 太郎', kana: 'みほん たろう', lines: [bento(25)], confirmed: true, delivered: true },
+        { number: '1002', monthsAgo: 4, dom: 22, slot: '12:00-13:00', company: '見本工業株式会社', dept: '人事部', orderer: '見本 花子', lines: [shoka(18)], confirmed: true, delivered: true },
+        { number: '1003', monthsAgo: 5, dom: 10, company: '見本法律事務所', orderer: '見本 次郎', lines: [ros(15)], confirmed: true, billing: '現金払い' },
+        { number: '1004', monthsAgo: 6, dom: 5, company: '見本建設株式会社', orderer: '見本 六郎', lines: [bento(40)], confirmed: true, cancelled: true }
       ] },
       { id: 'DEMO_002', name: '見本オードブル（デモ）', address: '〒140-0000 東京都品川区見本4-5-6', phone: '03-0000-0001', bank: '見本銀行 本店 普通 0000001 ミホンオードブル（カ', settings: demoSettings('0,1', '3', '12:00', '品川区・大田区', '5'), cards: [
         { number: '2101', day: -8, company: '見本不動産株式会社', orderer: '見本 八郎', lines: [['見本のオードブル A', 3, 6000]], confirmed: true, delivered: true },
         { number: '2102', day: 1, slot: '17:00-18:00', company: '見本ホールディングス', dept: '秘書室', orderer: '見本 九子', lines: [['見本のオードブル B', 5, 8000], ['見本のサラダ', 5, 1500]], confirmed: true },
-        { number: '2103', day: 3, slot: '18:00-19:00', company: '見本商店会', orderer: '見本 十郎', lines: [['見本のオードブル A', 10, 6000]] }
+        { number: '2103', day: 3, slot: '18:00-19:00', company: '見本商店会', orderer: '見本 十郎', lines: [['見本のオードブル A', 10, 6000]] },
+        { number: '2001', monthsAgo: 5, dom: 18, slot: '17:00-18:00', company: '見本不動産株式会社', orderer: '見本 八郎', lines: [['見本のオードブル B', 4, 8000]], confirmed: true, delivered: true }
       ] }
     ];
     demoBooks.forEach(function (b) {
@@ -3642,17 +4241,17 @@
     var bb = demoBook(body.storeId);
     var bc = null;
     bb.cards.forEach(function (c) { if (c.orderNumber === String(body.orderNumber) && c.state === '最新') { bc = c; } });
-    if (!bc || !bc.big) { return demoDashboard(bb.id, 'その注文は大口ではないか、キャンセルになりました。最新の状態に更新しました。'); }
-    if (bc.bigReply) { return demoDashboard(bb.id, 'この大口には、もう返事があります（' + bc.bigReply.state + '・' + bc.bigReply.at + '）。'); }
+    if (!bc || !bc.big) { return demoDashboard(bb.id, 'その注文は大口ではないか、キャンセルになりました。最新の状態に更新しました。', body.orderNumber); }
+    if (bc.bigReply) { return demoDashboard(bb.id, 'この大口には、もう返事があります（' + bc.bigReply.state + '・' + bc.bigReply.at + '）。', body.orderNumber); }
     if (body.answer !== 'ok' && body.answer !== 'ng') { return { ok: false, error: { code: 'BAD_REQUEST', message: '読めない依頼でした。' } }; }
     var who = (body.name ? body.name + '（' + DEMO_EMAIL + '）' : DEMO_EMAIL);
     bc.confirmed = { at: jstNow(), by: who, source: 'sheet' };
     if (body.answer === 'ok') {
       bc.bigReply = { state: '作れる', at: jstNow(), by: who, mail: '送った ' + jstNow() + '（見本）' };
-      return demoDashboard(bb.id, '注文番号 ' + bc.orderNumber + ' を「作れる」にしました。お客さまへ確定のメールを送りました（見本の中だけ。本物ではお客さまにメールが届き、返信はお店のメールに届きます）。');
+      return demoDashboard(bb.id, '注文番号 ' + bc.orderNumber + ' を「作れる」にしました。お客さまへ確定のメールを送りました（見本の中だけ。本物ではお客さまにメールが届き、返信はお店のメールに届きます）。', body.orderNumber);
     }
     bc.bigReply = { state: '作れない', at: jstNow(), by: who, mail: '送っていない（お店から連絡）' };
-    return demoDashboard(bb.id, '注文番号 ' + bc.orderNumber + ' を「作れない」にしました。お客さまへご連絡ください（電話 ' + (bc.phone || '（なし）') + '）。見本の中だけです。');
+    return demoDashboard(bb.id, '注文番号 ' + bc.orderNumber + ' を「作れない」にしました。お客さまへご連絡ください（電話 ' + (bc.phone || '（なし）') + '）。見本の中だけです。', body.orderNumber);
   }
   function demoLatestContact(storeId) {
     var hit = null;
@@ -3747,25 +4346,29 @@
     for (var i = 0; i < demoBooks.length; i++) { if (demoBooks[i].id === storeId) { return demoBooks[i]; } }
     return demoBooks[0];
   }
-  function demoDashboard(storeId, notice) {
+  /** 🆕 v9：見本の月ごとの合計（窓口 v12 の saDashMonthly_ と同じ決まり：売上はキャンセル・テストを数えない。数え方は monthTally と同じ） */
+  function demoMonthly(cards, today) {
+    var t = monthTally(cards, today);
+    return { list: Object.keys(t.by).sort().reverse().map(function (m) { var o = { m: m }; Object.keys(t.by[m]).forEach(function (k) { o[k] = t.by[m][k]; }); return o; }), all: t.all };
+  }
+  /** 見本の一覧（🆕 v9：窓口 v12 の形＝直近＋要対応＋押した注文・version・range・monthly）。target＝押した注文の注文番号 */
+  function demoDashboard(storeId, notice, target) {
     var b = demoBook(storeId);
     var today = jstDate(0);
+    var range = rangeFrom(today);
+    range.oldUndelivered = DEMO_OLD_UNDELIVERED; // 🆕 10/09 指摘2：窓口 v12 と同じ印
     b.cards.forEach(demoBigMark);
-    var cards = b.cards.slice().sort(function (x, y) {
-      var dx = x.deliveryDate || '9999-99-99';
-      var dy = y.deliveryDate || '9999-99-99';
-      if (dx !== dy) { return dx < dy ? -1 : 1; }
-      if (x.timeSlot !== y.timeSlot) { return x.timeSlot < y.timeSlot ? -1 : 1; }
-      return x.row - y.row;
-    });
+    var every = b.cards.slice().sort(cardOrder);
+    var cards = every.filter(function (c) { return keepRecent(c, range.from, today, range.oldUndelivered) || (target != null && c.orderNumber === String(target)); });
     return {
-      ok: true, today: today, tomorrow: jstDate(1), dayAfter: jstDate(2), cards: cards, counts: demoCounts(cards, today, jstDate(1), jstDate(2)),
+      ok: true, today: today, tomorrow: jstDate(1), dayAfter: jstDate(2), cards: cards, counts: demoCounts(every, today, jstDate(1), jstDate(2)),
       email: DEMO_EMAIL, stores: demoBooks.map(function (x) { return { id: x.id, name: x.name }; }),
       settings: b.settings, open: openStateOf(b.settings, today), ops: true, requestsReady: true, request: demoLatestRequest(b.id), products: demoProducts(b),
       productConfig: DEMO_PRODUCT_CONFIG, banners: DEMO_BANNERS,
       big: demoBigInfo(b), news: demoNewsFor(b.id), newsAll: demoNewsAll(), contacts: (b.contacts || []).slice(), contactMax: 10, contactRequest: demoLatestContact(b.id),
       reviews: demoReviewsInfo(b.id),
-      store: { id: b.id, name: b.name, address: b.settings.address, phone: b.settings.tel, bank: b.settings.bank }, canConfirm: true, logProblem: '', notice: notice || ''
+      store: { id: b.id, name: b.name, address: b.settings.address, phone: b.settings.tel, bank: b.settings.bank }, canConfirm: true, logProblem: '', notice: notice || '',
+      version: 12, range: range, monthly: demoMonthly(every, today)
     };
   }
   function demoApi(body) {
@@ -3773,23 +4376,31 @@
       setTimeout(function () {
         var action = body.action;
         if (action === 'dashboard') { return resolve(demoDashboard(body.storeId, '')); }
+        if (action === 'orders') { // 🆕 v9：過去の注文（選んだ月）＝窓口 v12 の orders と同じ形
+          var ob = demoBook(body.storeId);
+          var om = typeof body.month === 'string' ? body.month : '';
+          if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(om)) { return resolve({ ok: false, error: { code: 'BAD_REQUEST', message: '読めない依頼でした。' } }); }
+          ob.cards.forEach(demoBigMark);
+          return resolve({ ok: true, version: 12, storeId: ob.id, month: om, today: jstDate(0), cards: ob.cards.filter(function (c) { return monthOf(c) === om; }).sort(cardOrder) });
+        }
         if (action === 'confirm' || action === 'deliver') {
           var b = demoBook(body.storeId);
           var who = (body.name ? body.name + '（' + DEMO_EMAIL + '）' : DEMO_EMAIL);
           var hit = null;
           b.cards.forEach(function (c) { if (c.orderNumber === String(body.orderNumber)) { hit = c; } });
+          var tg = body.orderNumber; // 🆕 v9：押した注文の札は、古くても返す（窓口 v12 と同じ）
           if (!hit) { return resolve(demoDashboard(body.storeId, '見本にその注文はありません。')); }
           if (action === 'confirm') {
-            if (hit.confirmed) { return resolve(demoDashboard(body.storeId, 'すでに確認済みか、注文の内容が変わっていました。最新の状態に更新しました。')); }
+            if (hit.confirmed) { return resolve(demoDashboard(body.storeId, 'すでに確認済みか、注文の内容が変わっていました。最新の状態に更新しました。', tg)); }
             hit.confirmed = { at: jstNow(), by: who, source: 'sheet' };
-            return resolve(demoDashboard(body.storeId, '注文番号 ' + hit.orderNumber + ' を確認済みにしました。'));
+            return resolve(demoDashboard(body.storeId, '注文番号 ' + hit.orderNumber + ' を確認済みにしました。', tg));
           }
           if (body.undo) {
             hit.delivered = null;
-            return resolve(demoDashboard(body.storeId, '注文番号 ' + hit.orderNumber + ' の納品済みを取り消しました。'));
+            return resolve(demoDashboard(body.storeId, '注文番号 ' + hit.orderNumber + ' の納品済みを取り消しました。', tg));
           }
           hit.delivered = { at: jstNow(), by: who };
-          return resolve(demoDashboard(body.storeId, '注文番号 ' + hit.orderNumber + ' を納品済みにしました。'));
+          return resolve(demoDashboard(body.storeId, '注文番号 ' + hit.orderNumber + ' を納品済みにしました。', tg));
         }
         if (action === 'bigReply') { demoInit(); return resolve(demoBigReply(body)); }
         if (action === 'postNews' || action === 'withdrawNews') { demoInit(); return resolve(demoNewsAction(body)); }

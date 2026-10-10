@@ -3,7 +3,9 @@
 <head>
 <meta charset="utf-8">
 <!--
-  index.html ── matchimo 店舗管理画面（v8・2026-10-07：口コミ＝公開ずみの口コミを見て、返信を申請 → 運営が承認・トップの「新しい口コミ」）
+  index.html ── matchimo 店舗管理画面（v9・2026-10-09：性能の直し B＝窓口 v12 と組む。注文は100件ずつ「もっと見る」・「過去の注文」で月を選ぶ・
+               帳票と売上は古い月を選ぶと窓口に聞く・売上の「すべての期間」は月ごとの合計）
+  （v8・2026-10-07：口コミ＝公開ずみの口コミを見て、返信を申請 → 運営が承認・トップの「新しい口コミ」）
   （v7・2026-10-05 夕：大口の【作れる】【作れない】・大口の締切・お知らせ・通知先の申請・トップの「大口の返事待ち」）
   （v6・2026-10-05：商品の種類（お弁当4枚／オードブル8枚の写真）・オプション・申請の結果をボタンの横に・黒い左メニュー・上の広告枠）
   （v5・2026-10-04：商品の箱＝追加・編集・写真は申請 → 承認／公開停止は即時）
@@ -269,6 +271,10 @@
             <nav id="tabs" class="tabs" aria-label="絞り込み"></nav>
             <div class="search"><input id="orderSearch" type="search" placeholder="注文番号・会社名・担当者・電話で探す" aria-label="注文を探す" autocomplete="off"></div>
           </div>
+          <!-- 🆕 v9：過去の注文（直近より前の月）── 月を選ぶと窓口に聞く -->
+          <div id="pastBar" class="past-bar" hidden><label class="toolbar-field"><span>過去の注文</span><select id="pastMonth"></select></label></div>
+          <!-- 🆕 10/10（確かめの指摘）：「すべて」の説明は表の上（開いた画面で見える。前は100件の表と【もっと見る】の下） -->
+          <p id="rangeNote" class="hint range-note" hidden></p>
           <table class="table" id="table">
             <thead>
               <tr>
@@ -280,6 +286,7 @@
           </table>
           <div id="list" class="list"></div>
           <p id="empty" class="empty" hidden></p>
+          <div class="more-row"><button type="button" id="moreRows" class="btn btn-secondary btn-sm" hidden>もっと見る</button></div>
         </div>
         <p class="page-foot">「確認済み」は、お店が注文を見た記録です。取り消せません。運営の受注一覧にも、すぐに反映されます。「納品済み」は売上の確定に使います（取り消せます）。</p>
       </section>
@@ -321,6 +328,16 @@
               <tbody id="salesRows"></tbody>
             </table>
           </div>
+          <!-- 🆕 v9：すべての期間＝月ごとの合計（行を押すとその月へ） -->
+          <div class="table-wrap" id="salesMonthsWrap" hidden>
+            <table class="table table-months" id="salesMonthsTable">
+              <thead>
+                <tr><th>納品月</th><th class="num">注文</th><th class="num">食数</th><th class="num">金額</th><th class="num">納品済み</th></tr>
+              </thead>
+              <tbody id="salesMonthRows"></tbody>
+            </table>
+          </div>
+          <div class="more-row more-sales"><button type="button" id="salesMore" class="btn btn-secondary btn-sm" hidden>もっと見る</button></div>
           <p id="salesEmpty" class="empty" hidden>この月の注文はありません。</p>
         </div>
         <p class="page-foot">「納品済み」を押した注文が、売上の確定分です。月ごとの手数料の締めにも使います。</p>
