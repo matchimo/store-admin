@@ -586,31 +586,35 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
   .past-bar .toolbar-field select { flex: 1 1 180px; }
 }
 
-/* 🆕 v9.1（2026-10-11 よし「案1で」）：スマホの上の帯を2段に（1段目＝【≡　一覧】・matchimo（真ん中）・運営の札とログインID（右端）／2段目＝お店の選び欄を横いっぱい）・
+/* 🆕 v9.1（2026-10-11 よし「案1で」）：スマホの上の帯（1段目＝【≡ 一覧】・matchimo（真ん中・下に今のお店）・運営の札とログインID（右端）／お店の切り替えはメニューのいちばん上＝案A）・
    ログアウトはメニューのいちばん下へ。PC は今のまま（「お店」の字とメニューのログアウトは出さない） */
-.store-label { display: none; }
 .nav-account { display: none; }
+.brand-store, .nav-store { display: none; } /* 🆕 案A：スマホだけ（matchimo の下の今のお店・メニューのいちばん上のお店の切り替え） */
 .topbar-who { display: contents; } /* PC では箱が無いのと同じ（運営の札・ログインIDは今までどおり上の帯に並ぶ） */
 @media (max-width: 760px) {
   /* よし 10/11「≡　一覧」・「真ん中に matchimo」・「右端に運営とかのログイン情報」：1段目は 左【≡　一覧】／真ん中 matchimo／右端 運営の札とログインID */
-  .topbar-inner { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-areas: "menu brand who" "store store store";
-    align-items: center; column-gap: 8px; row-gap: 4px; height: auto; min-height: 52px; padding: 4px 12px 8px; }
+  .topbar-inner { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-areas: "menu brand who";
+    align-items: center; column-gap: 8px; height: auto; min-height: 52px; padding: 4px 12px; }
   /* メニューを開くボタンは塗り（matchimo の紺・白い字）で「≡　一覧」（よし「背景が白くてボタンのようになっていないと格好悪い」） */
   .topbar-inner > .menu-btn { grid-area: menu; justify-self: start; min-height: 40px; font-size: 15px; font-weight: 700; padding: 0 12px;
     gap: 0.3em; } /* ≡ と 一覧 のあいだは半角の空き（よし 10/11「全角スペースから半角スペースへ」）。ボタンの中では空白の文字が消えるので、すきまで半角分を空ける */
   /* 「≡」は全角で（よし 10/11「≡を全角にして欲しかったの」）：日本語の書体の ≡（全角の幅）を使う・書体が無い端末でも全角の幅を取る */
   .menu-icon { display: inline-block; min-width: 1em; text-align: center;
     font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "YuGothic", "Meiryo", "Noto Sans JP", "Noto Sans CJK JP", "IPAGothic", sans-serif; }
-  .brand { grid-area: brand; justify-self: center; align-items: center; min-height: 44px; padding-right: 0; border-right: 0; }
+  .brand { grid-area: brand; justify-self: center; flex-direction: column; justify-content: center; align-items: center; gap: 0; line-height: 1.25;
+    min-height: 44px; padding-right: 0; border-right: 0; }
+  /* 🆕 案A（よし 10/11「お店の表示部分がまだ気に入らない」「選択した後に非表示」→「案Aで」）：上の帯にはお店の選び欄を出さず、
+     matchimo の下に今のお店の名前を小さく出す（どのお店を見ているかは、いつも見える）。長い名前は「…」で縮め、左右のボタンと重ならない幅まで */
+  .brand-store { display: block; max-width: min(180px, calc(100vw - 210px)); font-size: 11px; font-weight: 600; color: var(--muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .topbar-who { grid-area: who; justify-self: end; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; min-width: 0; max-width: 100%; }
   .topbar-who .whoami { display: block; max-width: 100%; font-size: 11px; text-align: right; }
   .topbar #logout { display: none; }
-  /* 2段目＝お店（よし 10/11「お店の表示が大きすぎる」「もう少し存在感を出さないように綺麗に」）：「お店」の字を左に並べ・低め（36px）・太字にしない・
-     うすい灰色の地に細い線。字は 16px のまま（16px より小さいと、iPhone の Safari が選び欄を押したときに画面を拡大する） */
-  .store-switch { grid-area: store; display: flex; align-items: center; gap: 8px; min-width: 0; }
-  .store-label { display: block; flex: 0 0 auto; font-size: 12px; font-weight: 600; color: var(--muted); }
-  .store-switch .select { flex: 1 1 auto; min-width: 0; height: 36px; font-size: 16px; font-weight: 500; background-color: var(--gray-soft); border-color: var(--border); border-radius: 8px; }
-  .store-name { flex: 1 1 auto; min-width: 0; font-size: 15px; font-weight: 600; white-space: normal; overflow-wrap: anywhere; }
+  .topbar-inner > .store-switch { display: none; } /* 案A：お店の切り替えはメニューのいちばん上へ */
+  /* メニューのいちばん上のお店の切り替え（選ぶとメニューが閉じる）。字は 16px（16px より小さいと、iPhone の Safari が押したときに画面を拡大する） */
+  .nav-store { display: block; padding: 4px 16px 14px; margin-bottom: 4px; border-bottom: 1px solid var(--side-line); }
+  .nav-store-label { display: block; margin-bottom: 6px; color: var(--side-muted); font-size: 12px; font-weight: 600; }
+  .nav-store .select { width: 100%; height: 40px; font-size: 16px; font-weight: 600; border: 0; border-radius: 8px; }
   .nav-account { display: block; margin-top: auto; padding: 16px; border-top: 1px solid var(--side-line); }
   .nav-who { margin: 0 0 10px; color: var(--side-muted); font-size: 13px; overflow-wrap: anywhere; }
   .nav-logout { width: 100%; min-height: 44px; }
