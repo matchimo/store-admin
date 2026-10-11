@@ -4,6 +4,7 @@
  *    画面の上に広告枠（問いかけ → 色の帯の言い切り → 橙のボタン）。商品の写真の並び・オプションの欄・申請の結果の印
  * 🆕 v8（2026-10-07）：口コミの箱（口コミ → お店の返信 → 書く欄）
  * 🆕 v9（2026-10-09・性能の直し B）：過去の注文の月を選ぶ帯・「もっと見る」・売上の月ごとの合計の表（スマホでも出す）
+ * 🆕 v9.1（2026-10-11）：スマホの上の帯を2段に・お店の選び欄を横いっぱい・ログアウトはメニューのいちばん下（よし「案1で」）
  * 白と灰色を基調に、matchimo の紺を差し色に。書体は端末の標準。帳票は印刷用の決まりを末尾に。
  */
 :root {
@@ -583,4 +584,22 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
   .table.table-months { display: table; }   /* 月ごとの合計は小さいので、スマホでも出す（注文ごとの表はスマホでは出さない＝v8 のまま） */
   .more-row.more-sales { display: none; }   /* 売上の注文ごとの表はスマホでは出ないので、もっと見るも出さない */
   .past-bar .toolbar-field select { flex: 1 1 180px; }
+}
+
+/* 🆕 v9.1（2026-10-11 よし「案1で」）：スマホの上の帯を2段に（1段目＝≡・matchimo・運営の札／2段目＝お店の選び欄を横いっぱい）・
+   ログアウトは ≡ のメニューのいちばん下へ。PC は今のまま（「お店」の字とメニューのログアウトは出さない） */
+.store-label { display: none; }
+.nav-account { display: none; }
+@media (max-width: 760px) {
+  .topbar-inner { flex-wrap: wrap; height: auto; min-height: 52px; padding: 4px 12px 10px; row-gap: 4px; }
+  .topbar-inner > .menu-btn, .topbar-inner > .brand, .topbar-inner > .badge { min-height: 44px; }
+  .brand { align-items: center; border-right: 0; }
+  .topbar #logout { display: none; }
+  .store-switch { order: 10; flex: 1 1 100%; display: flex; flex-direction: column; gap: 2px; }
+  .store-label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); }
+  .store-switch .select { width: 100%; height: 44px; font-size: 16px; font-weight: 700; }
+  .store-name { font-size: 16px; white-space: normal; overflow-wrap: anywhere; }
+  .nav-account { display: block; margin-top: auto; padding: 16px; border-top: 1px solid var(--side-line); }
+  .nav-who { margin: 0 0 10px; color: var(--side-muted); font-size: 13px; overflow-wrap: anywhere; }
+  .nav-logout { width: 100%; min-height: 44px; }
 }
