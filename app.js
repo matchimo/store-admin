@@ -9,7 +9,7 @@
  *           10/10 確かめの指摘：同じ注文番号の札が2つある古い月で5分ごとに聞き直さない（おぼえた月は札ごとに差し替え・押した注文だけ鍵で全部）・
  *           売上「すべての期間」に「納品日が読めない注文」の行（上の数と表の合計を合わせる・CSV も）・古い注文の詳細は、返事から札が消えても
  *           その月を聞いて開いたまま・「すべて」の説明を表の上に・探す字があって月を選んでいないときは「過去の注文」の数を「—」に
- *   （v9.1・2026-10-11：スマホの上の帯（よし「案1で」）＝お店の選び欄は2段目に横いっぱい・ログアウトはメニューのいちばん下・メニューを開くボタンは塗りの【≡ 一覧】（≡ は全角）・matchimo は真ん中・右端に運営の札とログインID・お店の選び欄は控えめに（よし 10/11）。PC は変えない・窓口は変えない）
+ *   （v9.1・2026-10-11：スマホの上の帯（よし「案1で」）＝お店の選び欄は2段目に横いっぱい・ログアウトはメニューのいちばん下・メニューを開くボタンは塗りの【≡ 一覧】（≡ は全角）・matchimo は真ん中・右端に運営の札とログインID・スマホのお店の切り替えはメニューのいちばん上（選ぶとメニューが閉じる）・上の帯には今のお店の名前を matchimo の下に小さく（よし 10/11「案Aで」）。PC は変えない・窓口は変えない）
  *   （v8・2026-10-07：口コミ＝運営が公開にした口コミを見て、返信を【申請する】→ 運営が【承認】・
  *           トップの「新しい口コミ」・運営の「申請」で返信の見比べ。窓口 v10 と組む。窓口が v9 以前なら、口コミの箱は「準備中」の一言）
  *   （v7・2026-10-05 夕：大口の【作れる】【作れない】（返事は24時間以内）・大口の締切・お知らせ（運営 → お店・画面だけ）・
@@ -753,6 +753,8 @@
     $('opsBadge').hidden = !d.ops;
     $('demoBar').hidden = !DEMO;
     $('logout').hidden = DEMO;
+    $('brandStore').textContent = d.store.name; // 🆕 v9.1 案A：スマホでは matchimo の下に今のお店の名前（PC では出さない）
+    $('brandStore').title = d.store.name;
     var sel = $('storeSelect');
     clear(sel);
     if (d.stores.length > 1) {
@@ -867,6 +869,25 @@
 
   function renderNav() {
     var nav = clear($('sidenav'));
+    // 🆕 v9.1（2026-10-11 よし「案Aで」）：スマホのお店の切り替えはメニューのいちばん上（スマホだけ見える・PC は上の帯の選び欄のまま）。
+    //   選ぶとメニューを閉じて、そのお店を読み込む。お店が1つなら出さない（上の帯の matchimo の下に名前が出ている）
+    if (S.data && S.data.stores.length > 1) {
+      var sbox = el('div', 'nav-store');
+      var slab = el('label', 'nav-store-label', 'お店を切り替える');
+      slab.htmlFor = 'navStoreSelect';
+      sbox.appendChild(slab);
+      var ssel = el('select', 'select nav-store-select');
+      ssel.id = 'navStoreSelect';
+      S.data.stores.forEach(function (s) {
+        var o = el('option', '', s.name);
+        o.value = s.id;
+        o.selected = (s.id === S.data.store.id);
+        ssel.appendChild(o);
+      });
+      ssel.addEventListener('change', function (ev) { closeNav(); switchStore(ev.target.value); });
+      sbox.appendChild(ssel);
+      nav.appendChild(sbox);
+    }
     BOXES.filter(function (b) { return b[0] !== 'requests' || (S.data && S.data.ops); }).forEach(function (b, i) {
       if (i > 0 && NAV_SEP_BEFORE.indexOf(b[0]) !== -1) { nav.appendChild(el('div', 'navsep')); } // まとまりの区切り
       var btn = el('button', 'navbtn' + (S.box === b[0] ? ' is-active' : ''));
@@ -2883,12 +2904,14 @@
   $('refresh').addEventListener('click', function () { resetMonths(); load(S.storeId, false); });
   $('messageRetry').addEventListener('click', function () { if (S.token) { load(S.storeId, false); } else { location.reload(); } });
   $('noticeClose').addEventListener('click', function () { $('notice').hidden = true; });
-  $('storeSelect').addEventListener('change', function (ev) {
+  /** お店を切り替える（PC は上の帯の選び欄・スマホはメニューのいちばん上の選び欄＝v9.1 案A） */
+  function switchStore(id) {
     S.tab = ''; S.docOff = {}; S.reviews = null; S.rvEdit = ''; S.rvResult = null;
     resetMonths(); S.pastMonth = ''; S.limit = PAGE_SIZE; S.salesLimit = PAGE_SIZE; // 🆕 v9：おぼえた月・選んだ月を忘れる
     closeDetail();
-    load(ev.target.value, false);
-  });
+    load(id, false);
+  }
+  $('storeSelect').addEventListener('change', function (ev) { switchStore(ev.target.value); });
   /** 上の帯（PC）とメニューのいちばん下（スマホ）の【ログアウト】 */
   function askLogout() {
     if (window.confirm('ログアウトしますか？（次に開くときは、ログインID（メールアドレス）とパスワードが要ります）')) { logout(''); }
