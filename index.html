@@ -5,6 +5,7 @@
 <!--
   index.html ── matchimo 店舗管理画面（v9・2026-10-09：性能の直し B＝窓口 v12 と組む。注文は100件ずつ「もっと見る」・「過去の注文」で月を選ぶ・
                帳票と売上は古い月を選ぶと窓口に聞く・売上の「すべての期間」は月ごとの合計）
+  （v9.1・2026-10-11：スマホの上の帯を2段に＝お店の選び欄を横いっぱい・ログアウトは ≡ のメニューのいちばん下。PC は今のまま）
   （v8・2026-10-07：口コミ＝公開ずみの口コミを見て、返信を申請 → 運営が承認・トップの「新しい口コミ」）
   （v7・2026-10-05 夕：大口の【作れる】【作れない】・大口の締切・お知らせ・通知先の申請・トップの「大口の返事待ち」）
   （v6・2026-10-05：商品の種類（お弁当4枚／オードブル8枚の写真）・オプション・申請の結果をボタンの横に・黒い左メニュー・上の広告枠）
@@ -148,6 +149,7 @@
       <button type="button" id="menuBtn" class="btn btn-text menu-btn" aria-label="メニューを開く" aria-expanded="false">≡</button>
       <div class="brand"><span class="logo">matchimo</span><span class="logo-sub">店舗管理</span></div>
       <div class="store-switch">
+        <span class="store-label" aria-hidden="true">お店</span>
         <span id="storeName" class="store-name"></span>
         <select id="storeSelect" class="select" aria-label="店舗を切り替える" hidden></select>
       </div>

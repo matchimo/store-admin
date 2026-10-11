@@ -9,6 +9,7 @@
  *           10/10 確かめの指摘：同じ注文番号の札が2つある古い月で5分ごとに聞き直さない（おぼえた月は札ごとに差し替え・押した注文だけ鍵で全部）・
  *           売上「すべての期間」に「納品日が読めない注文」の行（上の数と表の合計を合わせる・CSV も）・古い注文の詳細は、返事から札が消えても
  *           その月を聞いて開いたまま・「すべて」の説明を表の上に・探す字があって月を選んでいないときは「過去の注文」の数を「—」に
+ *   （v9.1・2026-10-11：スマホの上の帯（よし「案1で」）＝お店の選び欄は2段目に横いっぱい・ログアウトは ≡ のメニューのいちばん下。PC は変えない・窓口は変えない）
  *   （v8・2026-10-07：口コミ＝運営が公開にした口コミを見て、返信を【申請する】→ 運営が【承認】・
  *           トップの「新しい口コミ」・運営の「申請」で返信の見比べ。窓口 v10 と組む。窓口が v9 以前なら、口コミの箱は「準備中」の一言）
  *   （v7・2026-10-05 夕：大口の【作れる】【作れない】（返事は24時間以内）・大口の締切・お知らせ（運営 → お店・画面だけ）・
@@ -881,6 +882,22 @@
       btn.addEventListener('click', function () { setBox(b[0], false); });
       nav.appendChild(btn);
     });
+    // 🆕 v9.1（2026-10-11 よし「案1で」）：メニューのいちばん下に「ログイン中」と【ログアウト】（スマホだけ見える・PC は上の帯のまま）。
+    //   メニューは描き直すたびに中身を消すので、ここで毎回作る。見本では上の帯と同じくログアウトを出さない
+    if (S.data) {
+      var acc = el('div', 'nav-account');
+      var who = el('p', 'nav-who', 'ログイン中：' + (S.data.email || ''));
+      who.title = S.data.email || '';
+      acc.appendChild(who);
+      if (!DEMO) {
+        var out = el('button', 'btn btn-secondary nav-logout', 'ログアウト');
+        out.type = 'button';
+        out.id = 'navLogout';
+        out.addEventListener('click', askLogout);
+        acc.appendChild(out);
+      }
+      nav.appendChild(acc);
+    }
   }
 
   function renderBox(id) {
@@ -2872,9 +2889,11 @@
     closeDetail();
     load(ev.target.value, false);
   });
-  $('logout').addEventListener('click', function () {
+  /** 上の帯（PC）とメニューのいちばん下（スマホ）の【ログアウト】 */
+  function askLogout() {
     if (window.confirm('ログアウトしますか？（次に開くときは、ログインID（メールアドレス）とパスワードが要ります）')) { logout(''); }
-  });
+  }
+  $('logout').addEventListener('click', askLogout);
   // 開いたままでも新しい注文が出るように、5分ごとに読み直す（画面が見えていて、ダイアログを開いていないときだけ）
   //   🆕 v9：読み直すのは一覧（dashboard）だけ。描くのは見えている箱だけ・もっと見るの位置とスクロールは保つ。
   //   おぼえた月は、一覧の返事と合わないとき（別の端末で古い注文が変わった＝dropStaleMonths）だけ忘れて、見ている箱が聞き直す
