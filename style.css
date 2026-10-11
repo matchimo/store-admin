@@ -596,7 +596,10 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
   .topbar-inner { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-areas: "menu brand who" "store store store";
     align-items: center; column-gap: 8px; row-gap: 4px; height: auto; min-height: 52px; padding: 4px 12px 10px; }
   /* メニューを開くボタンは塗り（matchimo の紺・白い字）で「≡　一覧」（よし「背景が白くてボタンのようになっていないと格好悪い」） */
-  .topbar-inner > .menu-btn { grid-area: menu; justify-self: start; min-height: 40px; font-size: 15px; font-weight: 700; padding: 0 12px; }
+  .topbar-inner > .menu-btn { grid-area: menu; justify-self: start; min-height: 40px; font-size: 15px; font-weight: 700; padding: 0 12px; gap: 0; }
+  /* 「≡」は全角で（よし 10/11「≡を全角にして欲しかったの」）：日本語の書体の ≡（全角の幅）を使う・書体が無い端末でも全角の幅を取る */
+  .menu-icon { display: inline-block; min-width: 1em; text-align: center;
+    font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "YuGothic", "Meiryo", "Noto Sans JP", "Noto Sans CJK JP", "IPAGothic", sans-serif; }
   .brand { grid-area: brand; justify-self: center; align-items: center; min-height: 44px; padding-right: 0; border-right: 0; }
   .topbar-who { grid-area: who; justify-self: end; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; min-width: 0; max-width: 100%; }
   .topbar-who .whoami { display: block; max-width: 100%; font-size: 11px; text-align: right; }
