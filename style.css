@@ -586,18 +586,22 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
   .past-bar .toolbar-field select { flex: 1 1 180px; }
 }
 
-/* 🆕 v9.1（2026-10-11 よし「案1で」）：スマホの上の帯を2段に（1段目＝≡・matchimo・運営の札／2段目＝お店の選び欄を横いっぱい）・
-   ログアウトは ≡ のメニューのいちばん下へ。PC は今のまま（「お店」の字とメニューのログアウトは出さない） */
+/* 🆕 v9.1（2026-10-11 よし「案1で」）：スマホの上の帯を2段に（1段目＝【≡　一覧】・matchimo（真ん中）・運営の札とログインID（右端）／2段目＝お店の選び欄を横いっぱい）・
+   ログアウトはメニューのいちばん下へ。PC は今のまま（「お店」の字とメニューのログアウトは出さない） */
 .store-label { display: none; }
 .nav-account { display: none; }
+.topbar-who { display: contents; } /* PC では箱が無いのと同じ（運営の札・ログインIDは今までどおり上の帯に並ぶ） */
 @media (max-width: 760px) {
-  .topbar-inner { flex-wrap: wrap; height: auto; min-height: 52px; padding: 4px 12px 10px; row-gap: 4px; }
-  .topbar-inner > .menu-btn, .topbar-inner > .brand, .topbar-inner > .badge { min-height: 44px; }
-  /* メニューを開くボタンは「≡」でなく「一覧」の字（よし 10/11「「≡」ではなく「一覧」の方がわかりやすそう」）。押せるとわかるように枠つき */
-  .topbar-inner > .menu-btn { min-height: 40px; align-self: center; font-size: 15px; font-weight: 700; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: 6px; background: #fff; color: var(--text); }
-  .brand { align-items: center; border-right: 0; }
+  /* よし 10/11「≡　一覧」・「真ん中に matchimo」・「右端に運営とかのログイン情報」：1段目は 左【≡　一覧】／真ん中 matchimo／右端 運営の札とログインID */
+  .topbar-inner { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-areas: "menu brand who" "store store store";
+    align-items: center; column-gap: 8px; row-gap: 4px; height: auto; min-height: 52px; padding: 4px 12px 10px; }
+  /* メニューを開くボタンは塗り（matchimo の紺・白い字）で「≡　一覧」（よし「背景が白くてボタンのようになっていないと格好悪い」） */
+  .topbar-inner > .menu-btn { grid-area: menu; justify-self: start; min-height: 40px; font-size: 15px; font-weight: 700; padding: 0 12px; }
+  .brand { grid-area: brand; justify-self: center; align-items: center; min-height: 44px; padding-right: 0; border-right: 0; }
+  .topbar-who { grid-area: who; justify-self: end; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; min-width: 0; max-width: 100%; }
+  .topbar-who .whoami { display: block; max-width: 100%; font-size: 11px; text-align: right; }
   .topbar #logout { display: none; }
-  .store-switch { order: 10; flex: 1 1 100%; display: flex; flex-direction: column; gap: 2px; }
+  .store-switch { grid-area: store; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .store-label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); }
   .store-switch .select { width: 100%; height: 44px; font-size: 16px; font-weight: 700; }
   .store-name { font-size: 16px; white-space: normal; overflow-wrap: anywhere; }
