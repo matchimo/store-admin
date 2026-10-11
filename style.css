@@ -594,9 +594,10 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 @media (max-width: 760px) {
   /* よし 10/11「≡　一覧」・「真ん中に matchimo」・「右端に運営とかのログイン情報」：1段目は 左【≡　一覧】／真ん中 matchimo／右端 運営の札とログインID */
   .topbar-inner { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-areas: "menu brand who" "store store store";
-    align-items: center; column-gap: 8px; row-gap: 4px; height: auto; min-height: 52px; padding: 4px 12px 10px; }
+    align-items: center; column-gap: 8px; row-gap: 4px; height: auto; min-height: 52px; padding: 4px 12px 8px; }
   /* メニューを開くボタンは塗り（matchimo の紺・白い字）で「≡　一覧」（よし「背景が白くてボタンのようになっていないと格好悪い」） */
-  .topbar-inner > .menu-btn { grid-area: menu; justify-self: start; min-height: 40px; font-size: 15px; font-weight: 700; padding: 0 12px; gap: 0; }
+  .topbar-inner > .menu-btn { grid-area: menu; justify-self: start; min-height: 40px; font-size: 15px; font-weight: 700; padding: 0 12px;
+    gap: 0.3em; } /* ≡ と 一覧 のあいだは半角の空き（よし 10/11「全角スペースから半角スペースへ」）。ボタンの中では空白の文字が消えるので、すきまで半角分を空ける */
   /* 「≡」は全角で（よし 10/11「≡を全角にして欲しかったの」）：日本語の書体の ≡（全角の幅）を使う・書体が無い端末でも全角の幅を取る */
   .menu-icon { display: inline-block; min-width: 1em; text-align: center;
     font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "YuGothic", "Meiryo", "Noto Sans JP", "Noto Sans CJK JP", "IPAGothic", sans-serif; }
@@ -604,10 +605,12 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
   .topbar-who { grid-area: who; justify-self: end; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; min-width: 0; max-width: 100%; }
   .topbar-who .whoami { display: block; max-width: 100%; font-size: 11px; text-align: right; }
   .topbar #logout { display: none; }
-  .store-switch { grid-area: store; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-  .store-label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); }
-  .store-switch .select { width: 100%; height: 44px; font-size: 16px; font-weight: 700; }
-  .store-name { font-size: 16px; white-space: normal; overflow-wrap: anywhere; }
+  /* 2段目＝お店（よし 10/11「お店の表示が大きすぎる」「もう少し存在感を出さないように綺麗に」）：「お店」の字を左に並べ・低め（36px）・太字にしない・
+     うすい灰色の地に細い線。字は 16px のまま（16px より小さいと、iPhone の Safari が選び欄を押したときに画面を拡大する） */
+  .store-switch { grid-area: store; display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .store-label { display: block; flex: 0 0 auto; font-size: 12px; font-weight: 600; color: var(--muted); }
+  .store-switch .select { flex: 1 1 auto; min-width: 0; height: 36px; font-size: 16px; font-weight: 500; background-color: var(--gray-soft); border-color: var(--border); border-radius: 8px; }
+  .store-name { flex: 1 1 auto; min-width: 0; font-size: 15px; font-weight: 600; white-space: normal; overflow-wrap: anywhere; }
   .nav-account { display: block; margin-top: auto; padding: 16px; border-top: 1px solid var(--side-line); }
   .nav-who { margin: 0 0 10px; color: var(--side-muted); font-size: 13px; overflow-wrap: anywhere; }
   .nav-logout { width: 100%; min-height: 44px; }
