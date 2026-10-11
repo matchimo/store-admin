@@ -593,6 +593,8 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 @media (max-width: 760px) {
   .topbar-inner { flex-wrap: wrap; height: auto; min-height: 52px; padding: 4px 12px 10px; row-gap: 4px; }
   .topbar-inner > .menu-btn, .topbar-inner > .brand, .topbar-inner > .badge { min-height: 44px; }
+  /* メニューを開くボタンは「≡」でなく「一覧」の字（よし 10/11「「≡」ではなく「一覧」の方がわかりやすそう」）。押せるとわかるように枠つき */
+  .topbar-inner > .menu-btn { min-height: 40px; align-self: center; font-size: 15px; font-weight: 700; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: 6px; background: #fff; color: var(--text); }
   .brand { align-items: center; border-right: 0; }
   .topbar #logout { display: none; }
   .store-switch { order: 10; flex: 1 1 100%; display: flex; flex-direction: column; gap: 2px; }
