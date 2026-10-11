@@ -3,6 +3,7 @@
  * 🆕 v6（2026-10-05）：よし「食べログの管理画面に少し寄せたい」→ 左メニューは黒い背景（選んでいる所に橙の印・まとまりの区切り）・上の帯の下に黒い線・
  *    画面の上に広告枠（問いかけ → 色の帯の言い切り → 橙のボタン）。商品の写真の並び・オプションの欄・申請の結果の印
  * 🆕 v8（2026-10-07）：口コミの箱（口コミ → お店の返信 → 書く欄）
+ * 🆕 v9（2026-10-09・性能の直し B）：過去の注文の月を選ぶ帯・「もっと見る」・売上の月ごとの合計の表（スマホでも出す）
  * 白と灰色を基調に、matchimo の紺を差し色に。書体は端末の標準。帳票は印刷用の決まりを末尾に。
  */
 :root {
@@ -568,4 +569,18 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
   .ad-btn { min-height: 38px; padding: 0 14px; font-size: 13px; }
   .photo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .opt-grid { grid-template-columns: 1fr; }
+}
+
+/* 🆕 v9（2026-10-09・性能の直し B）：過去の注文の帯・もっと見る・直近の説明・売上の月ごとの合計 */
+.past-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border); background: #f9fafb; }
+.past-bar select { max-width: 100%; min-width: 0; }
+.past-bar .toolbar-field { flex-wrap: wrap; max-width: 100%; }
+.more-row { text-align: center; }
+.more-row .btn { margin: 12px auto; max-width: calc(100% - 24px); white-space: normal; }
+.range-note { margin: 0; padding: 8px 12px; border-bottom: 1px solid var(--border); background: #f9fafb; } /* 🆕 10/10：表の上に移した */
+.table-months tbody tr { cursor: pointer; }
+@media (max-width: 760px) {
+  .table.table-months { display: table; }   /* 月ごとの合計は小さいので、スマホでも出す（注文ごとの表はスマホでは出さない＝v8 のまま） */
+  .more-row.more-sales { display: none; }   /* 売上の注文ごとの表はスマホでは出ないので、もっと見るも出さない */
+  .past-bar .toolbar-field select { flex: 1 1 180px; }
 }
