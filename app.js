@@ -9,6 +9,7 @@
  *           10/10 確かめの指摘：同じ注文番号の札が2つある古い月で5分ごとに聞き直さない（おぼえた月は札ごとに差し替え・押した注文だけ鍵で全部）・
  *           売上「すべての期間」に「納品日が読めない注文」の行（上の数と表の合計を合わせる・CSV も）・古い注文の詳細は、返事から札が消えても
  *           その月を聞いて開いたまま・「すべて」の説明を表の上に・探す字があって月を選んでいないときは「過去の注文」の数を「—」に
+ *   （v9.2・2026-10-11：締切は 1〜30日（受注サイトはお店の値どおり・当日は不可）・大口の締切 1〜60日・大口の返事の時間（3・6・12・24時間・納品日の前日 23:59 まで）。窓口 v13 と組む。窓口が v12 以前なら返事の時間の欄は出さない）
  *   （v9.1・2026-10-11：スマホの上の帯（よし「案1で」）＝お店の選び欄は2段目に横いっぱい・ログアウトはメニューのいちばん下・メニューを開くボタンは塗りの【≡ 一覧】（≡ は全角）・matchimo は真ん中・右端に運営の札とログインID・スマホのお店の切り替えはメニューのいちばん上（選ぶとメニューが閉じる）・上の帯には今のお店の名前を matchimo の下に小さく（よし 10/11「案Aで」）。PC は変えない・窓口は変えない）
  *   （v8・2026-10-07：口コミ＝運営が公開にした口コミを見て、返信を【申請する】→ 運営が【承認】・
  *           トップの「新しい口コミ」・運営の「申請」で返信の見比べ。窓口 v10 と組む。窓口が v9 以前なら、口コミの箱は「準備中」の一言）
@@ -1577,7 +1578,7 @@
     }
     if (c.bigActive && bigReady()) {
       var w = el('div', 'box box-warning');
-      w.appendChild(el('div', 'strong', '大口（' + c.qty + '食）のご注文です。返事の期限：' + c.bigDue + '（注文から' + (b.hours || 24) + '時間）'));
+      w.appendChild(el('div', 'strong', '大口（' + c.qty + '食）のご注文です。返事の期限：' + c.bigDue + '（注文から' + (b.hours || 24) + '時間・納品日の前日 23:59 まで）'));
       w.appendChild(el('div', '', '【大口の返事】で「作れる」か「作れない」を押してください。返事がないと「作れる」として確定し、お客さまへ確定のメールが届きます（お店の責任でお作りください）。'));
       if (c.bigLate) { w.appendChild(el('div', 'strong', '🔴 大口の締切（納品日の' + b.leadDays + '日前）を過ぎて届いた注文です。作れないときは「作れない」を押してください。')); }
       return w;
@@ -1677,7 +1678,7 @@
     $('bmodalTitle').textContent = '大口のご注文（' + c.qty + '食）に返事します';
     var body = clear($('bmodalBody'));
     body.appendChild(summaryDl(c));
-    body.appendChild(el('p', 'strong', '返事の期限：' + c.bigDue + '（注文から' + (b.hours || 24) + '時間・過ぎると「作れる」として確定）'));
+    body.appendChild(el('p', 'strong', '返事の期限：' + c.bigDue + '（注文から' + (b.hours || 24) + '時間・納品日の前日 23:59 まで・過ぎると「作れる」として確定）'));
     if (c.bigLate) { body.appendChild(el('div', 'box box-danger', '🔴 大口の締切（納品日の' + b.leadDays + '日前）を過ぎて届いた注文です。')); }
     $('bmodalNgText').textContent = '確認ずみにして、運営へ知らせます。お客さまへは、お店からご連絡ください（電話 ' + (c.phone || 'なし') + '）。注文の変更・キャンセルが決まったら、運営へお知らせください。';
     $('bwhoName').value = S.name;
@@ -2768,7 +2769,7 @@
   // 営業の設定・お店の情報（事実の欄）── 承認なしで保存し、運営にメール（2026-10-04・窓口 saveSettings）
   // ---------------------------------------------------------------------------
 
-  var HOURS_FIELDS = { stop: 'hrStop', stop_until: 'hrStopUntil', stop_note: 'hrStopNote', lead_days: 'hrLead', cutoff_time: 'hrCutoff', large_lead_days: 'hrLargeLead', areas: 'hrArea', min_lot: 'hrMinLot' };
+  var HOURS_FIELDS = { stop: 'hrStop', stop_until: 'hrStopUntil', stop_note: 'hrStopNote', lead_days: 'hrLead', cutoff_time: 'hrCutoff', large_lead_days: 'hrLargeLead', big_reply_hours: 'hrBigReply', areas: 'hrArea', min_lot: 'hrMinLot' };
   var STORE_FIELDS = { address: 'stAddress', tel: 'stTel', map_url: 'stMap', bank: 'stBank' };
   var DIRTY_TEXT = '保存していない変更があります';
 
@@ -2813,7 +2814,12 @@
     $('hrLargeLeadField').hidden = !big;
     if (big) {
       $('hrLargeLeadHint').textContent = '大口（' + bigQty() + '食以上）の注文の締切。' + (st.large_lead_days ? 'いまは 納品日の' + big.leadDays + '日前' : '空なら ふだんの締切＋' + big.extra + '日（いまは 納品日の' + big.leadDays + '日前）') +
-        (st.cutoff_time ? 'の ' + st.cutoff_time + ' まで' : 'まで') + '。大口の注文には、届いてから' + big.hours + '時間以内に【作れる】【作れない】で返事します（返事がないと「作れる」として確定）。';
+        (st.cutoff_time ? 'の ' + st.cutoff_time + ' まで' : 'まで') + '。大口の注文には、届いてから' + big.hours + '時間以内（納品日の前日 23:59 まで）に【作れる】【作れない】で返事します（返事がないと「作れる」として確定）。';
+    }
+    // 🆕 10/11（よし「ウ」）：大口の返事の時間（窓口 v13 から＝choices があるときだけ出す）
+    $('hrBigReplyField').hidden = !(big && big.choices);
+    if (big && big.choices) {
+      $('hrBigReplyHint').textContent = '大口の注文に【作れる】【作れない】で返事する時間です。いまは 届いてから' + big.hours + '時間（ただし 納品日の前日 23:59 まで）。過ぎると「作れる」として確定し、お客さまへ確定のメールが届きます。';
     }
   }
   function markHoursDirty() { S.hoursDirty = true; $('hrUpdated').textContent = DIRTY_TEXT; }
@@ -2861,6 +2867,7 @@
     for (var i = 0; i < cbs.length; i++) { if (cbs[i].checked) { out.closed_weekdays.push(cbs[i].value); } }
     Object.keys(HOURS_FIELDS).forEach(function (k) { out[k] = $(HOURS_FIELDS[k]).value.trim(); });
     if ($('hrLargeLeadField').hidden) { delete out.large_lead_days; } // 窓口が v8 以前（大口の締切を知らない）
+    if ($('hrBigReplyField').hidden) { delete out.big_reply_hours; } // 🆕 窓口が v12 以前（返事の時間を知らない）
     return out;
   }
   $('hrSave').addEventListener('click', function () { saveSettings('hours', hoursInput()); });
@@ -4134,7 +4141,7 @@
     return counts;
   }
   function demoSettings(cw, lead, cutoff, areas, minlot) {
-    return { closed_weekdays: cw, holidays: '', stop: '', stop_note: '', stop_until: '', lead_days: lead, cutoff_time: cutoff, large_lead_days: '', areas: areas, min_lot: minlot,
+    return { closed_weekdays: cw, holidays: '', stop: '', stop_note: '', stop_until: '', lead_days: lead, cutoff_time: cutoff, large_lead_days: '', big_reply_hours: '', areas: areas, min_lot: minlot,
       address: '', tel: '', map_url: '', bank: '', updatedAt: '', updatedBy: '',
       intro: '', point1_title: '', point1_body: '', point2_title: '', point2_body: '', point3_title: '', point3_body: '', photo_id: '', photo_name: '' };
   }
@@ -4268,7 +4275,8 @@
     var st = b.settings || {};
     var normal = String(st.lead_days || '') !== '' ? Number(st.lead_days) : 2;
     var lead = String(st.large_lead_days || '') !== '' ? Math.max(Number(st.large_lead_days), normal) : normal + 2;
-    return { ready: true, hours: 24, remindHours: 18, leadDays: lead, extra: 2, themeLeadDays: 2, qty: 200 };
+    var hours = [3, 6, 12, 24].indexOf(Number(st.big_reply_hours)) !== -1 ? Number(st.big_reply_hours) : 24; // 🆕 10/11：お店が選ぶ返事の時間
+    return { ready: true, hours: hours, remindHours: hours >= 12 ? hours - 6 : hours / 2, choices: [3, 6, 12, 24], leadDays: lead, extra: 2, themeLeadDays: 2, qty: 200 };
   }
   function demoBigMark(c) {
     if (!c.big) { return; }
@@ -4541,19 +4549,27 @@
         }
         if (action === 'saveSettings') {
           var bk = demoBook(body.storeId);
-          var keys = body.scope === 'store' ? ['address', 'tel', 'map_url', 'bank'] : ['closed_weekdays', 'holidays', 'stop', 'stop_note', 'stop_until', 'lead_days', 'cutoff_time', 'large_lead_days', 'areas', 'min_lot'];
+          var keys = body.scope === 'store' ? ['address', 'tel', 'map_url', 'bank'] : ['closed_weekdays', 'holidays', 'stop', 'stop_note', 'stop_until', 'lead_days', 'cutoff_time', 'large_lead_days', 'big_reply_hours', 'areas', 'min_lot'];
           var inp = body.settings || {};
+          // 🆕 10/11：窓口と同じ決まり（ふだん 1〜30・大口 1〜60・返事の時間 3・6・12・24）
+          if (body.scope !== 'store' && inp.lead_days != null && String(inp.lead_days).trim() !== '') {
+            var ld = Number(String(inp.lead_days).trim());
+            if (!(ld >= 1 && ld <= 30) || Math.floor(ld) !== ld) { return resolve({ ok: false, error: { code: 'BAD_INPUT', message: '締切（何日前まで）は 1〜30 の数で（当日の締切はできません）' } }); }
+          }
+          if (body.scope !== 'store' && inp.big_reply_hours != null && String(inp.big_reply_hours).trim() !== '' && [3, 6, 12, 24].indexOf(Number(inp.big_reply_hours)) === -1) {
+            return resolve({ ok: false, error: { code: 'BAD_INPUT', message: '大口の返事の時間は 3・6・12・24 時間のどれか（空なら24時間）' } });
+          }
           if (body.scope !== 'store' && inp.large_lead_days != null && String(inp.large_lead_days).trim() !== '') {
             var ll = Number(String(inp.large_lead_days).trim());
             var nl = String(inp.lead_days == null ? '' : inp.lead_days).trim() !== '' ? Number(inp.lead_days) : 2;
-            if (!(ll >= 0 && ll <= 60) || Math.floor(ll) !== ll) { return resolve({ ok: false, error: { code: 'BAD_INPUT', message: '大口の締切（何日前まで）は 0〜60 の数で' } }); }
+            if (!(ll >= 1 && ll <= 60) || Math.floor(ll) !== ll) { return resolve({ ok: false, error: { code: 'BAD_INPUT', message: '大口の締切（何日前まで）は 1〜60 の数で（当日の締切はできません）' } }); }
             if (ll < nl) { return resolve({ ok: false, error: { code: 'BAD_INPUT', message: '大口の締切は、ふだんの締切と同じか、それより前（大きい数）にしてください' } }); }
           }
           var td = jstDate(0);
           var changed = 0;
           keys.forEach(function (k) {
             var v = inp[k];
-            if (k === 'large_lead_days' && v === undefined) { return; }
+            if ((k === 'large_lead_days' || k === 'big_reply_hours') && v === undefined) { return; }
             if (k === 'closed_weekdays' || k === 'holidays') {
               var arr = (Array.isArray(v) ? v : splitList(v)).filter(function (x, i, all) { return (k === 'holidays' ? x >= td : /^[0-6]$/.test(x)) && all.indexOf(x) === i; });
               v = arr.sort().join(',');
