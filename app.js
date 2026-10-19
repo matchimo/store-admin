@@ -64,7 +64,7 @@
   var DOC_KINDS = [['order', '注文書'], ['count', '個数表'], ['label', '貼り札'], ['delivery', '納品書'], ['invoice', '請求書'], ['receipt', '領収書'], ['csv', 'CSV']];
   var S = { api: '', token: '', storeId: '', name: '', data: null, tab: '', box: '', detailKey: '', modalCard: null, sending: false, lastFocus: null,
     invite: '', notice: '', query: '', deliverCard: null, deliverUndo: false, docDate: '', docKind: 'order', docOff: {}, salesMonth: '', hoursDirty: false, storeDirty: false, holidays: null,
-    storyDirty: false, photoFile: null, photos: {}, requests: null, pending: 0, requestsReady: true, reqFilter: 'pending', reqOpen: null, judge: null,
+    storyDirty: false, photoFile: null, logoFile: null, photos: {}, requests: null, pending: 0, requestsReady: true, reqFilter: 'pending', reqOpen: null, judge: null,
     prEdit: null, prDirty: false, prPhotos: [], prOptions: [], prResult: null, stResult: null, prLocked: false, prPending: false, pmodal: null,
     adIndex: 0, adTimer: null, adHold: false, bigCard: null, ctDirty: false, ctResult: null, newsArm: '',
     reviews: null, rvStore: '', rvState: '', rvMax: 400, rvEdit: '', rvDraft: '', rvResult: null,
@@ -2865,7 +2865,7 @@
     $('box-store').addEventListener(evName, function (ev) {
       var id = ev.target && ev.target.id;
       if (['stAddress', 'stTel', 'stMap', 'stBank'].indexOf(id) !== -1) { S.storeDirty = true; $('stUpdated').textContent = DIRTY_TEXT; }
-      else if (id && id !== 'stPhoto') { S.storyDirty = true; S.stResult = null; renderInlineResult('st'); $('stReqHint').textContent = '申請していない変更があります'; }
+      else if (id && id !== 'stPhoto' && id !== 'stLogo') { S.storyDirty = true; S.stResult = null; renderInlineResult('st'); $('stReqHint').textContent = '申請していない変更があります'; }
     });
   });
   function hoursInput() {
@@ -2984,7 +2984,7 @@
 
   var STORY_FIELDS = { intro: 'stIntro', point1_title: 'stP1t', point1_body: 'stP1b', point2_title: 'stP2t', point2_body: 'stP2b', point3_title: 'stP3t', point3_body: 'stP3b' };
   var STORY_LABELS = { intro: 'お店の紹介文', point1_title: 'こだわり1（見出し）', point1_body: 'こだわり1（本文）', point2_title: 'こだわり2（見出し）', point2_body: 'こだわり2（本文）',
-    point3_title: 'こだわり3（見出し）', point3_body: 'こだわり3（本文）', photo_id: 'お店の写真' };
+    point3_title: 'こだわり3（見出し）', point3_body: 'こだわり3（本文）', photo_id: 'お店の写真', logo_id: 'ロゴ' };
   var REQ_STATE = { PENDING: '申請中', APPROVED: '承認', REJECTED: '差し戻し', WITHDRAWN: '取り下げ' };
   var REPLY_LABELS = { reply: '返信' }; // 🆕 v8：申請の種類「返信」（口コミへの返信）
   var PHOTO_MAX = 4 * 1024 * 1024;
@@ -3015,6 +3015,8 @@
   }
 
   // ---- お店の側：文章・写真の申請 ----
+  /** 🆕 10/19：窓口がロゴを知っているか（窓口 v15 は storyKeys に logo_id を返す。古い窓口のときはロゴの欄を出さない・送らない） */
+  function storyKnowsLogo() { var ks = S.data && S.data.storyKeys; return !!(ks && ks.indexOf && ks.indexOf('logo_id') !== -1); }
   function storyValues() {
     var req = S.data.request;
     if (req && (req.state === REQ_STATE.PENDING || req.state === REQ_STATE.REJECTED)) { return req.after || {}; }
@@ -3040,9 +3042,14 @@
       S.photoFile = null;
       $('stPhoto').value = '';
       renderPhotoPreview(v.photo_id || '', v.photo_name || '');
+      $('stLogoRemove').checked = false;
+      S.logoFile = null;
+      $('stLogo').value = '';
+      if (storyKnowsLogo()) { renderLogoPreview(v.logo_id || '', v.logo_name || ''); }
     }
+    $('stLogoField').hidden = !storyKnowsLogo();
     Object.keys(STORY_FIELDS).forEach(function (k) { $(STORY_FIELDS[k]).disabled = pending || !ready; });
-    ['stPhoto', 'stPhotoRemove', 'stNote'].forEach(function (id) { $(id).disabled = pending || !ready; });
+    ['stPhoto', 'stPhotoRemove', 'stLogo', 'stLogoRemove', 'stNote'].forEach(function (id) { $(id).disabled = pending || !ready; });
     $('stSubmit').hidden = pending || !ready;
     $('stWithdraw').hidden = !pending;
     $('stReqHint').textContent = S.storyDirty ? '申請していない変更があります' : '';
@@ -3056,6 +3063,33 @@
     if (data && data !== 'loading') { img.src = data; img.hidden = false; $('stPhotoName').textContent = 'いまの写真：' + (name || ''); }
     else { img.hidden = true; $('stPhotoName').textContent = data === 'loading' ? '写真を読み込み中…' : '（写真を読めませんでした）'; }
   }
+  /** 🆕 10/19：ロゴの見本（お店の写真と同じ形） */
+  function renderLogoPreview(id, name) {
+    var img = $('stLogoPreview');
+    if (S.logoFile) { img.src = S.logoFile.data; img.hidden = false; $('stLogoName').textContent = '新しいロゴ：' + S.logoFile.name; return; }
+    if (!id) { img.hidden = true; img.removeAttribute('src'); $('stLogoName').textContent = 'まだロゴはありません。'; return; }
+    var data = photoOf(id, function () { if (S.box === 'store' && !S.logoFile) { renderLogoPreview(id, name); } });
+    if (data && data !== 'loading') { img.src = data; img.hidden = false; $('stLogoName').textContent = 'いまのロゴ：' + (name || ''); }
+    else { img.hidden = true; $('stLogoName').textContent = data === 'loading' ? 'ロゴを読み込み中…' : '（ロゴを読めませんでした）'; }
+  }
+  $('stLogo').addEventListener('change', function () {
+    var f = $('stLogo').files && $('stLogo').files[0];
+    if (!f) { return; }
+    if (PHOTO_TYPES.indexOf(f.type) === -1) { $('stLogo').value = ''; return showNotice('ロゴは JPEG・PNG・WebP のどれかにしてください。', true); }
+    if (f.size > PHOTO_MAX) { $('stLogo').value = ''; return showNotice('ロゴは 4MB までにしてください。', true); }
+    var reader = new FileReader();
+    reader.onload = function () {
+      S.logoFile = { name: f.name, type: f.type, data: String(reader.result) };
+      S.storyDirty = true;
+      S.stResult = null;
+      renderInlineResult('st');
+      $('stLogoRemove').checked = false;
+      $('stReqHint').textContent = '申請していない変更があります';
+      renderLogoPreview('', '');
+    };
+    reader.onerror = function () { showNotice('ロゴを読めませんでした。', true); };
+    reader.readAsDataURL(f);
+  });
   $('stPhoto').addEventListener('change', function () {
     var f = $('stPhoto').files && $('stPhoto').files[0];
     if (!f) { return; }
@@ -3082,13 +3116,18 @@
     if (S.photoFile && !body.removePhoto) { body.photo = S.photoFile; }
     var sv = storyValues();
     if (!S.photoFile && !body.removePhoto && sv.photo_id) { body.photoId = sv.photo_id; } // 差し戻しのあとも前の写真を引き継ぐ
+    if (storyKnowsLogo()) { // 🆕 10/19：ロゴ（古い窓口には送らない）
+      body.removeLogo = $('stLogoRemove').checked;
+      if (S.logoFile && !body.removeLogo) { body.logo = S.logoFile; }
+      if (!S.logoFile && !body.removeLogo && sv.logo_id) { body.logoId = sv.logo_id; }
+    }
     S.sending = true;
     busy(true);
     callApi(body).then(function (res) {
       S.sending = false;
       busy(false);
       if (res && res.error && ['BAD_INPUT', 'BUSY', 'NOT_READY', 'NO_REQUEST_BOOK'].indexOf(res.error.code) !== -1) { return stFail(res.error.message); }
-      if (res && !res.error) { S.storyDirty = false; S.photoFile = null; S.stResult = resultOf(res); }
+      if (res && !res.error) { S.storyDirty = false; S.photoFile = null; S.logoFile = null; S.stResult = resultOf(res); }
       render(res, true);
     }, function (e) {
       S.sending = false;
@@ -3229,11 +3268,13 @@
     var rerender = function () { if (S.reqOpen === r) { renderRequestDetail(r); } };
     var labels = r.kind === '商品' ? PRODUCT_LABELS : (r.kind === '通知先' ? CONTACT_LABELS : (r.kind === '返信' ? REPLY_LABELS : STORY_LABELS));
     Object.keys(labels).forEach(function (k) {
+      // 🆕 10/19：ロゴの行は、申請にロゴの項目があるとき（窓口 v15 からの申請）だけ
+      if (k === 'logo_id' && !('logo_id' in (r.after || {})) && !('logo_id' in (r.before || {}))) { return; }
       var b = diffText(k, (r.before || {})[k]);
       var av = diffText(k, (r.after || {})[k]);
       var tr = el('tr', b !== av ? 'is-changed' : '');
       tr.appendChild(el('th', '', labels[k]));
-      if (k === 'photo_id') {
+      if (k === 'photo_id' || k === 'logo_id') {
         var td1 = el('td');
         td1.appendChild(photoStrip(b, '変更前の写真', rerender));
         tr.appendChild(td1);
@@ -4422,7 +4463,8 @@
     return {
       ok: true, today: today, tomorrow: jstDate(1), dayAfter: jstDate(2), cards: cards, counts: demoCounts(every, today, jstDate(1), jstDate(2)),
       email: DEMO_EMAIL, stores: demoBooks.map(function (x) { return { id: x.id, name: x.name }; }),
-      settings: b.settings, hoursKeys: ['closed_weekdays', 'holidays', 'stop', 'stop_note', 'stop_until', 'lead_days', 'cutoff_time', 'large_lead_days', 'big_reply_hours', 'areas', 'min_lot', 'payment', 'takeout', 'takeout_note'],
+      settings: b.settings, storyKeys: ['intro', 'point1_title', 'point1_body', 'point2_title', 'point2_body', 'point3_title', 'point3_body', 'photo_id', 'photo_name', 'logo_id', 'logo_name'],
+      hoursKeys: ['closed_weekdays', 'holidays', 'stop', 'stop_note', 'stop_until', 'lead_days', 'cutoff_time', 'large_lead_days', 'big_reply_hours', 'areas', 'min_lot', 'payment', 'takeout', 'takeout_note'],
       open: openStateOf(b.settings, today), ops: true, requestsReady: true, request: demoLatestRequest(b.id), products: demoProducts(b),
       productConfig: DEMO_PRODUCT_CONFIG, banners: DEMO_BANNERS,
       big: demoBigInfo(b), news: demoNewsFor(b.id), newsAll: demoNewsAll(), contacts: (b.contacts || []).slice(), contactMax: 10, contactRequest: demoLatestContact(b.id),
@@ -4516,8 +4558,10 @@
             var curReq = demoLatestRequest(sb.id);
             if (curReq && curReq.state === REQ_STATE.PENDING) { return resolve(demoDashboard(sb.id, 'すでに申請中のものがあります。取り下げてから、もう一度申請してください。')); }
             var before = {}; var after = {};
-            Object.keys(STORY_LABELS).concat(['photo_name']).forEach(function (k) { before[k] = sb.settings[k] || ''; after[k] = (k === 'photo_id' || k === 'photo_name') ? before[k] : String((body.fields || {})[k] || '').trim(); });
+            Object.keys(STORY_LABELS).concat(['photo_name', 'logo_name']).forEach(function (k) { before[k] = sb.settings[k] || ''; after[k] = (k === 'photo_id' || k === 'photo_name' || k === 'logo_id' || k === 'logo_name') ? before[k] : String((body.fields || {})[k] || '').trim(); });
             if (body.removePhoto) { after.photo_id = ''; after.photo_name = ''; }
+            if (body.removeLogo) { after.logo_id = ''; after.logo_name = ''; }
+            if (body.logo && !body.removeLogo) { var lid = 'DEMOPHOTO_' + (Object.keys(demoPhotos).length + 1); demoPhotos[lid] = body.logo.data; after.logo_id = lid; after.logo_name = body.logo.name; }
             if (body.photo && !body.removePhoto) { var pid = 'DEMOPHOTO_' + (Object.keys(demoPhotos).length + 1); demoPhotos[pid] = body.photo.data; after.photo_id = pid; after.photo_name = body.photo.name; }
             var same = Object.keys(after).every(function (k) { return after[k] === before[k]; });
             if (same) { return resolve(demoDashboard(sb.id, '変更がありません（いまの内容と同じです）。')); }

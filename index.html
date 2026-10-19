@@ -368,6 +368,16 @@
                   <label class="check-inline"><input id="stPhotoRemove" type="checkbox"> いまの写真を外す</label>
                 </div>
               </div></div>
+            <div class="field field-wide" id="stLogoField" hidden><label for="stLogo">ロゴ（横長・透明の PNG がおすすめ・JPEG/PNG/WebP・4MB まで）</label>
+              <div class="photo-row">
+                <img id="stLogoPreview" alt="ロゴ" hidden>
+                <div class="photo-tools">
+                  <input id="stLogo" type="file" accept="image/jpeg,image/png,image/webp">
+                  <p id="stLogoName" class="hint"></p>
+                  <label class="check-inline"><input id="stLogoRemove" type="checkbox"> いまのロゴを外す</label>
+                  <p class="hint">受注サイトの商品ページに、店名の横で小さく出ます。</p>
+                </div>
+              </div></div>
             <div class="field field-wide"><label for="stNote">運営へのひとこと（任意・200字）</label><input id="stNote" type="text" maxlength="200" placeholder="例：写真を新しいものに変えました"></div>
           </div>
           <div class="toolbar-actions"><button type="button" id="stSubmit" class="btn btn-primary">申請する</button><button type="button" id="stWithdraw" class="btn btn-secondary" hidden>申請を取り下げる</button><span id="stResult" class="inline-result" role="status" hidden></span><span id="stReqHint" class="muted small"></span></div>
