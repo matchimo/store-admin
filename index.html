@@ -401,8 +401,11 @@
             <div class="field"><label for="hrCutoff">締切の時刻</label><input id="hrCutoff" type="time"></div>
             <div class="field" id="hrLargeLeadField" hidden><label for="hrLargeLead">大口の締切（納品日の何日前まで）</label><input id="hrLargeLead" type="number" min="1" max="60" inputmode="numeric" placeholder="空＝ふだんの締切＋2日"><p class="hint" id="hrLargeLeadHint"></p></div>
             <div class="field" id="hrBigReplyField" hidden><label for="hrBigReply">大口の返事の時間（届いてから何時間まで）</label><select id="hrBigReply" class="select"><option value="">24時間（決めないとき）</option><option value="12">12時間</option><option value="6">6時間</option><option value="3">3時間</option></select><p class="hint" id="hrBigReplyHint"></p></div>
-            <div class="field field-wide"><label for="hrArea">対応エリア</label><textarea id="hrArea" maxlength="300" placeholder="例：品川区・港区・目黒区・大田区"></textarea></div>
+            <div class="field field-wide"><label for="hrArea">対応エリア</label><textarea id="hrArea" maxlength="300" placeholder="例：品川区・港区・目黒区・大田区"></textarea><p class="hint">区市町村の名前（例：品川区）を「・」で区切って書いてください。受注サイトの配達チェックは、この名前で確かめます。</p></div>
             <div class="field"><label for="hrMinLot">最小ロット（お店の既定）</label><input id="hrMinLot" type="number" min="1" max="9999" inputmode="numeric" placeholder="例：20"></div>
+            <div class="field field-wide" id="hrPaymentField" hidden><label for="hrPayment">お支払い条件（お客さまのページに出ます）</label><input id="hrPayment" type="text" maxlength="100" placeholder="例：請求書払い（月末締め・翌月末払い）"><p class="hint">お店の情報の「振込先」とは別です（振込先はお客さまには出ません）。</p></div>
+            <div class="field" id="hrTakeoutField" hidden><label for="hrTakeout">テイクアウト</label><select id="hrTakeout" class="select"><option value="">テイクアウトしない</option><option value="1">テイクアウトできる</option></select></div>
+            <div class="field" id="hrTakeoutNoteField" hidden><label for="hrTakeoutNote">テイクアウトの一言（お客さまに出ます）</label><input id="hrTakeoutNote" type="text" maxlength="40" placeholder="例：店頭受け取りで5%OFF"><p class="hint">「テイクアウトしない」のときは出ません。</p></div>
           </div>
           <p class="hint" id="hrOrdersOnHolidays"></p>
           <div class="toolbar-actions"><button type="button" id="hrSave" class="btn btn-primary">営業の設定を保存</button><span id="hrUpdated" class="muted small"></span></div>

@@ -2769,7 +2769,12 @@
   // 営業の設定・お店の情報（事実の欄）── 承認なしで保存し、運営にメール（2026-10-04・窓口 saveSettings）
   // ---------------------------------------------------------------------------
 
-  var HOURS_FIELDS = { stop: 'hrStop', stop_until: 'hrStopUntil', stop_note: 'hrStopNote', lead_days: 'hrLead', cutoff_time: 'hrCutoff', large_lead_days: 'hrLargeLead', big_reply_hours: 'hrBigReply', areas: 'hrArea', min_lot: 'hrMinLot' };
+  var HOURS_FIELDS = { stop: 'hrStop', stop_until: 'hrStopUntil', stop_note: 'hrStopNote', lead_days: 'hrLead', cutoff_time: 'hrCutoff', large_lead_days: 'hrLargeLead', big_reply_hours: 'hrBigReply', areas: 'hrArea', min_lot: 'hrMinLot',
+    payment: 'hrPayment', takeout: 'hrTakeout', takeout_note: 'hrTakeoutNote' }; // 🆕 10/19：お支払い条件・テイクアウト（窓口が hoursKeys で知らせたときだけ出す）
+  var PAY_TAKEOUT_KEYS = ['payment', 'takeout', 'takeout_note'];
+  var PAY_TAKEOUT_FIELDS = { payment: 'hrPaymentField', takeout: 'hrTakeoutField', takeout_note: 'hrTakeoutNoteField' };
+  /** 🆕 10/19：窓口がこの欄を知っているか（古い窓口は hoursKeys を返さない＝出さない・送らない） */
+  function hoursKnows(k) { var ks = S.data && S.data.hoursKeys; return !!(ks && ks.indexOf && ks.indexOf(k) !== -1); }
   var STORE_FIELDS = { address: 'stAddress', tel: 'stTel', map_url: 'stMap', bank: 'stBank' };
   var DIRTY_TEXT = '保存していない変更があります';
 
@@ -2816,6 +2821,8 @@
       $('hrLargeLeadHint').textContent = '大口（' + bigQty() + '食以上）の注文の締切。' + (st.large_lead_days ? 'いまは 納品日の' + big.leadDays + '日前' : '空なら ふだんの締切＋' + big.extra + '日（いまは 納品日の' + big.leadDays + '日前）') +
         (st.cutoff_time ? 'の ' + st.cutoff_time + ' まで' : 'まで') + '。大口の注文には、届いてから' + big.hours + '時間以内（納品日の前日 23:59 まで）に【作れる】【作れない】で返事します（返事がないと「作れる」として確定）。';
     }
+    // 🆕 10/19：お支払い条件・テイクアウト（窓口が知っているときだけ）
+    PAY_TAKEOUT_KEYS.forEach(function (k) { $(PAY_TAKEOUT_FIELDS[k]).hidden = !hoursKnows(k); });
     // 🆕 10/11（よし「ウ」）：大口の返事の時間（窓口 v13 から＝choices があるときだけ出す）
     $('hrBigReplyField').hidden = !(big && big.choices);
     if (big && big.choices) {
@@ -2868,6 +2875,7 @@
     Object.keys(HOURS_FIELDS).forEach(function (k) { out[k] = $(HOURS_FIELDS[k]).value.trim(); });
     if ($('hrLargeLeadField').hidden) { delete out.large_lead_days; } // 窓口が v8 以前（大口の締切を知らない）
     if ($('hrBigReplyField').hidden) { delete out.big_reply_hours; } // 🆕 窓口が v12 以前（返事の時間を知らない）
+    PAY_TAKEOUT_KEYS.forEach(function (k) { if ($(PAY_TAKEOUT_FIELDS[k]).hidden) { delete out[k]; } }); // 🆕 10/19：古い窓口には送らない
     return out;
   }
   $('hrSave').addEventListener('click', function () { saveSettings('hours', hoursInput()); });
@@ -4142,6 +4150,7 @@
   }
   function demoSettings(cw, lead, cutoff, areas, minlot) {
     return { closed_weekdays: cw, holidays: '', stop: '', stop_note: '', stop_until: '', lead_days: lead, cutoff_time: cutoff, large_lead_days: '', big_reply_hours: '', areas: areas, min_lot: minlot,
+      payment: '', takeout: '', takeout_note: '',
       address: '', tel: '', map_url: '', bank: '', updatedAt: '', updatedBy: '',
       intro: '', point1_title: '', point1_body: '', point2_title: '', point2_body: '', point3_title: '', point3_body: '', photo_id: '', photo_name: '' };
   }
@@ -4413,7 +4422,8 @@
     return {
       ok: true, today: today, tomorrow: jstDate(1), dayAfter: jstDate(2), cards: cards, counts: demoCounts(every, today, jstDate(1), jstDate(2)),
       email: DEMO_EMAIL, stores: demoBooks.map(function (x) { return { id: x.id, name: x.name }; }),
-      settings: b.settings, open: openStateOf(b.settings, today), ops: true, requestsReady: true, request: demoLatestRequest(b.id), products: demoProducts(b),
+      settings: b.settings, hoursKeys: ['closed_weekdays', 'holidays', 'stop', 'stop_note', 'stop_until', 'lead_days', 'cutoff_time', 'large_lead_days', 'big_reply_hours', 'areas', 'min_lot', 'payment', 'takeout', 'takeout_note'],
+      open: openStateOf(b.settings, today), ops: true, requestsReady: true, request: demoLatestRequest(b.id), products: demoProducts(b),
       productConfig: DEMO_PRODUCT_CONFIG, banners: DEMO_BANNERS,
       big: demoBigInfo(b), news: demoNewsFor(b.id), newsAll: demoNewsAll(), contacts: (b.contacts || []).slice(), contactMax: 10, contactRequest: demoLatestContact(b.id),
       reviews: demoReviewsInfo(b.id),
@@ -4549,7 +4559,7 @@
         }
         if (action === 'saveSettings') {
           var bk = demoBook(body.storeId);
-          var keys = body.scope === 'store' ? ['address', 'tel', 'map_url', 'bank'] : ['closed_weekdays', 'holidays', 'stop', 'stop_note', 'stop_until', 'lead_days', 'cutoff_time', 'large_lead_days', 'big_reply_hours', 'areas', 'min_lot'];
+          var keys = body.scope === 'store' ? ['address', 'tel', 'map_url', 'bank'] : ['closed_weekdays', 'holidays', 'stop', 'stop_note', 'stop_until', 'lead_days', 'cutoff_time', 'large_lead_days', 'big_reply_hours', 'areas', 'min_lot', 'payment', 'takeout', 'takeout_note'];
           var inp = body.settings || {};
           // 🆕 10/11：窓口と同じ決まり（ふだん 1〜30・大口 1〜60・返事の時間 3・6・12・24）
           if (body.scope !== 'store' && inp.lead_days != null && String(inp.lead_days).trim() !== '') {
