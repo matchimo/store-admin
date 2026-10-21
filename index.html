@@ -5,6 +5,7 @@
 <!--
   index.html ── matchimo 店舗管理画面（v9・2026-10-09：性能の直し B＝窓口 v12 と組む。注文は100件ずつ「もっと見る」・「過去の注文」で月を選ぶ・
                帳票と売上は古い月を選ぶと窓口に聞く・売上の「すべての期間」は月ごとの合計）
+  （v9.5・2026-10-21：営業の設定の「臨時の受付停止」の下に「いまは受注サイトには出ません」の一言（よし 10/21「３、はい」）。定休日・休業日は写す係が受注サイトへ（窓口は変えない））
   （v9.2・2026-10-11：営業の設定の締切は 1〜30日・大口の締切 1〜60日・大口の返事の時間の欄（窓口 v13 から））
   （v9.1・2026-10-11：スマホの上の帯を2段に＝お店の選び欄を横いっぱい・ログアウトはメニューのいちばん下。メニューを開くボタンは塗りの【≡ 一覧】（≡ は全角）・matchimo は真ん中・右端に運営の札とログインID・スマホのお店の切り替えはメニューのいちばん上・上の帯には今のお店の名前を matchimo の下に小さく（よし 10/11「案Aで」）。PC は今のまま）
   （v8・2026-10-07：口コミ＝公開ずみの口コミを見て、返信を申請 → 運営が承認・トップの「新しい口コミ」）
@@ -404,7 +405,7 @@
               <div class="row-inline"><input id="hrHoliday" type="date"><button type="button" id="hrHolidayAdd" class="btn btn-secondary">足す</button></div>
               <div id="hrHolidayList" class="chips"></div>
               <p class="hint">過ぎた日は、保存のときに自動で外れます。</p></div>
-            <div class="field"><label for="hrStop">臨時の受付停止</label><select id="hrStop"><option value="">受付中</option><option value="1">いま受付を止める</option></select></div>
+            <div class="field"><label for="hrStop">臨時の受付停止</label><select id="hrStop"><option value="">受付中</option><option value="1">いま受付を止める</option></select><p class="hint" id="hrStopHint">いまは受注サイトには出ません（準備中）。受付を止めたいときは、運営にご連絡ください。</p></div>
             <div class="field"><label for="hrStopUntil">停止の期限（この日まで。空なら戻すまで）</label><input id="hrStopUntil" type="date"></div>
             <div class="field field-wide"><label for="hrStopNote">停止の理由（お客さまに見せる一言）</label><input id="hrStopNote" type="text" maxlength="100" placeholder="例：仕込みのため、◯日まで受付を止めています"></div>
             <div class="field"><label for="hrLead">締切（納品日の何日前まで）</label><input id="hrLead" type="number" min="1" max="30" inputmode="numeric" placeholder="例：2"><p class="hint">1〜30日。受注サイトは この日数どおりに選べる日を出します（当日の締切はできません）。空なら2日。</p></div>
