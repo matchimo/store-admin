@@ -5,6 +5,8 @@
 <!--
   index.html ── matchimo 店舗管理画面（v9・2026-10-09：性能の直し B＝窓口 v12 と組む。注文は100件ずつ「もっと見る」・「過去の注文」で月を選ぶ・
                帳票と売上は古い月を選ぶと窓口に聞く・売上の「すべての期間」は月ごとの合計）
+  （v9.5・2026-10-21：営業の設定の「臨時の受付停止」の下に「いまは受注サイトには出ません」の一言（よし 10/21「３、はい」）。定休日・休業日は写す係が受注サイトへ。
+   10/22：営業の設定・お店の情報の「反映は運営が行います」を、本番の動き（自動・定休日と休業日は5分ほど・そのほかは毎晩3時ごろ）の文に（よし 10/22「２、本番同様にしておく」）。商品は今までどおり運営の手）
   （v9.2・2026-10-11：営業の設定の締切は 1〜30日・大口の締切 1〜60日・大口の返事の時間の欄（窓口 v13 から））
   （v9.1・2026-10-11：スマホの上の帯を2段に＝お店の選び欄を横いっぱい・ログアウトはメニューのいちばん下。メニューを開くボタンは塗りの【≡ 一覧】（≡ は全角）・matchimo は真ん中・右端に運営の札とログインID・スマホのお店の切り替えはメニューのいちばん上・上の帯には今のお店の名前を matchimo の下に小さく（よし 10/11「案Aで」）。PC は今のまま）
   （v8・2026-10-07：口コミ＝公開ずみの口コミを見て、返信を申請 → 運営が承認・トップの「新しい口コミ」）
@@ -347,7 +349,7 @@
       <!-- お店の情報 -->
       <section id="box-store" class="box" hidden>
         <div class="page-head"><h1>お店の情報</h1></div>
-        <p class="coming">文章と写真は【申請する】→ 運営が確認して【承認】→ 受注サイトのお店のページへ（反映は運営が行います）。「事実の情報」は承認なしで保存され、運営にメールで知らせます。</p>
+        <p class="coming">文章と写真は【申請する】→ 運営が確認して【承認】→ 受注サイトのお店のページへ（承認のあと、毎晩3時ごろ自動で反映）。「事実の情報」は承認なしで保存され、運営にメールで知らせます。</p>
         <div class="panel pad">
           <h2 class="h2">お客さまに見える文章・写真（申請 → 運営が承認）</h2>
           <div id="reqStatus" class="box box-gray" hidden></div>
@@ -388,7 +390,7 @@
             <div class="field"><label for="stMap">Google マップのリンク</label><input id="stMap" type="url" maxlength="500" placeholder="https://maps.app.goo.gl/…"></div>
             <div class="field"><label for="stBank">振込先（請求書に出ます・お客さまのページには出ません）</label><input id="stBank" type="text" maxlength="200" placeholder="銀行名・支店・口座の種類と番号・名義"></div>
           </div>
-          <p class="hint">受注サイト（お店のページ）への反映は運営が行います。保存すると運営にメールが届きます。</p>
+          <p class="hint">受注サイト（お店のページ）には、毎晩3時ごろ自動で反映されます。保存すると運営にメールが届きます。</p>
           <div class="toolbar-actions"><button type="button" id="stSave" class="btn btn-primary">事実の情報を保存</button><span id="stUpdated" class="muted small"></span></div>
         </div>
       </section>
@@ -396,7 +398,7 @@
       <!-- 営業の設定 -->
       <section id="box-hours" class="box" hidden>
         <div class="page-head"><h1>営業の設定</h1></div>
-        <p class="coming">ここで変えたものは、承認なしで保存され、運営にメールで知らせます。受注サイトへの反映は運営が行います（自動になる予定）。</p>
+        <p class="coming" id="hrSyncNote">ここで変えたものは、承認なしで保存され、運営にメールで知らせます。受注サイトには自動で反映されます（定休日・休業日は5分ほど、そのほかは毎晩3時ごろ。臨時の受付停止は、まだ受注サイトに出ません）。</p>
         <div class="panel pad">
           <div class="form-grid">
             <div class="field"><label>定休日</label><div class="check-row" id="hoursWeek"></div></div>
@@ -404,7 +406,7 @@
               <div class="row-inline"><input id="hrHoliday" type="date"><button type="button" id="hrHolidayAdd" class="btn btn-secondary">足す</button></div>
               <div id="hrHolidayList" class="chips"></div>
               <p class="hint">過ぎた日は、保存のときに自動で外れます。</p></div>
-            <div class="field"><label for="hrStop">臨時の受付停止</label><select id="hrStop"><option value="">受付中</option><option value="1">いま受付を止める</option></select></div>
+            <div class="field"><label for="hrStop">臨時の受付停止</label><select id="hrStop"><option value="">受付中</option><option value="1">いま受付を止める</option></select><p class="hint" id="hrStopHint">いまは受注サイトには出ません（準備中）。受付を止めたいときは、運営にご連絡ください。</p></div>
             <div class="field"><label for="hrStopUntil">停止の期限（この日まで。空なら戻すまで）</label><input id="hrStopUntil" type="date"></div>
             <div class="field field-wide"><label for="hrStopNote">停止の理由（お客さまに見せる一言）</label><input id="hrStopNote" type="text" maxlength="100" placeholder="例：仕込みのため、◯日まで受付を止めています"></div>
             <div class="field"><label for="hrLead">締切（納品日の何日前まで）</label><input id="hrLead" type="number" min="1" max="30" inputmode="numeric" placeholder="例：2"><p class="hint">1〜30日。受注サイトは この日数どおりに選べる日を出します（当日の締切はできません）。空なら2日。</p></div>
