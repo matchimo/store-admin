@@ -3032,7 +3032,7 @@
     else if (!req) { panel.hidden = true; }
     else if (pending) { panel.className = 'box box-warning'; panel.textContent = '申請中（' + req.at + '・' + req.by + '）── 運営が確認しています。直したいときは、取り下げてからもう一度申請してください。'; }
     else if (req.state === REQ_STATE.REJECTED) { panel.className = 'box box-danger'; panel.textContent = '差し戻し（' + req.judgedAt + '）理由：' + req.reason + '　── 直して、もう一度【申請する】を押してください。'; }
-    else if (req.state === REQ_STATE.APPROVED) { panel.className = 'box box-success'; panel.textContent = '承認ずみ（' + req.judgedAt + '）' + (req.synced ? '　受注サイトに反映ずみ（' + req.synced + '）' : '　受注サイトへの反映は運営が行います。'); }
+    else if (req.state === REQ_STATE.APPROVED) { panel.className = 'box box-success'; panel.textContent = '承認ずみ（' + req.judgedAt + '）' + (req.synced ? '　受注サイトに反映ずみ（' + req.synced + '）' : '　次の夜3時ごろに受注サイトへ写ります（運営が【いま写す】を押せばすぐ）。'); }
     else { panel.className = 'box box-gray'; panel.textContent = '前の申請は取り下げました（' + req.judgedAt + '）。直して、もう一度申請できます。'; }
     if (!S.storyDirty) {
       var v = storyValues();
@@ -3321,7 +3321,7 @@
     body.appendChild(el('p', 'muted small', decision === 'approve' ? (r.kind === '通知先' ?
       '承認すると、マスタの通知先（H列）がすぐ書き換わり、足したメールに招待が届きます。外したメールは その場でログインできなくなります（お店の全員にメールで知らせます）。' :
       r.kind === '返信' ? '承認すると、お店の「口コミの返信」に入り、お店にメールが届きます（受注サイトに口コミと返信を出すのは、その仕組みができてから）。' :
-      '承認すると、お店の承認済みの内容になり、お店にメールが届きます。受注サイトへの反映は運営の手です（写し終えたら、この申請の【受注サイトに反映した】を押します）。') :
+      '承認すると、お店の承認済みの内容になり、お店にメールが届きます。受注サイトへは写す係が次の夜3時ごろに写します（運営が【いま写す】を押せばすぐ。係が止まっているときは、写し終えたら、この申請の【受注サイトに反映した】を押します）。') :
       '理由はお店に届きます。お店は直して、もう一度申請できます。'));
     $('jreasonField').hidden = decision !== 'reject';
     $('jreason').value = '';
@@ -3519,7 +3519,7 @@
     var sub = '';
     if (p.request && p.request.state === REQ_STATE.REJECTED) { sub = '差し戻し（' + p.request.judgedAt + '）理由：' + p.request.reason; }
     else if (p.request && p.request.state === REQ_STATE.PENDING) { sub = '申請中（' + p.request.at + '）── 運営が確認しています'; }
-    else if (p.updatedAt) { sub = '最終更新 ' + p.updatedAt + (p.synced ? '　受注サイトに反映ずみ（' + p.synced + '）' : '　受注サイトへの反映は運営が行います'); }
+    else if (p.updatedAt) { sub = '最終更新 ' + p.updatedAt + (p.synced ? '　受注サイトに反映ずみ（' + p.synced + '）' : '　次の夜3時ごろに受注サイトへ写ります（運営が【いま写す】を押せばすぐ）'); }
     body.appendChild(el('div', 'product-sub' + (p.request && p.request.state === REQ_STATE.REJECTED ? ' is-ng' : ''), sub));
     var acts = el('div', 'product-actions');
     var edit = el('button', 'btn btn-secondary btn-sm', p.request && p.request.state === REQ_STATE.PENDING ? '申請を見る' : '直す');
@@ -3586,7 +3586,7 @@
     if (req) {
       if (pending) { panel.className = 'box box-warning'; panel.textContent = '申請中（' + req.at + '・' + req.by + '）── 運営が確認しています。直したいときは、取り下げてからもう一度申請してください。'; }
       else if (req.state === REQ_STATE.REJECTED) { panel.className = 'box box-danger'; panel.textContent = '差し戻し（' + req.judgedAt + '）理由：' + req.reason + '　── 直して、もう一度【申請する】を押してください。'; }
-      else if (req.state === REQ_STATE.APPROVED) { panel.className = 'box box-success'; panel.textContent = '承認ずみ（' + req.judgedAt + '）' + (p.synced ? '　受注サイトに反映ずみ（' + p.synced + '）' : '　受注サイトへの反映は運営が行います。'); }
+      else if (req.state === REQ_STATE.APPROVED) { panel.className = 'box box-success'; panel.textContent = '承認ずみ（' + req.judgedAt + '）' + (p.synced ? '　受注サイトに反映ずみ（' + p.synced + '）' : '　次の夜3時ごろに受注サイトへ写ります（運営が【いま写す】を押せばすぐ）。'); }
       else { panel.hidden = true; }
     }
     if (!S.prDirty) {
@@ -4521,7 +4521,7 @@
             var lbl = st === '停止' ? '公開停止' : '公開';
             if (hitP.status === st) { return resolve(demoDashboard(pb.id, '「' + hitP.title + '」は、もう' + lbl + 'になっています。')); }
             hitP.status = st; hitP.updatedAt = jstNow(); hitP.updatedBy = (body.name ? body.name + '（' + DEMO_EMAIL + '）' : DEMO_EMAIL); hitP.synced = '';
-            return resolve(demoDashboard(pb.id, '「' + hitP.title + '」を' + lbl + 'にしました（見本の中だけ。本物では運営にメールが届きます）。受注サイトへの反映は運営が行います。'));
+            return resolve(demoDashboard(pb.id, '「' + hitP.title + '」を' + lbl + 'にしました（見本の中だけ。本物では運営にメールが届きます）。次の夜3時ごろに受注サイトへ写ります。'));
           }
           if (action === 'markSynced') {
             if (body.requestId) {
@@ -4597,7 +4597,7 @@
             noticeJ = body.decision !== 'approve' ? '差し戻しました（見本の中だけ。本物ではお店にメールが届きます）。' :
               (target.kind === '返信' ? '承認しました（見本の中だけ。本物ではお店にメールが届きます）。返信は お店の「口コミの返信」に入りました（受注サイトに出すのは、口コミを出す仕組みができてから）。' :
               target.kind === '通知先' ? '承認しました（見本の中だけ。本物では マスタの通知先がすぐ書き換わり、足したメールに招待が届きます）。' :
-                '承認しました（見本の中だけ。本物ではお店にメールが届きます）。受注サイトへの反映は運営の手です。');
+                '承認しました（見本の中だけ。本物ではお店にメールが届きます）。受注サイトへは写す係が次の夜3時ごろに写します。');
           }
           return resolve({ ok: true, ready: true, requests: demoRequests.slice(), pending: demoRequests.filter(function (r) { return r.state === REQ_STATE.PENDING; }).length, notice: noticeJ });
         }
